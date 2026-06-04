@@ -769,10 +769,10 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     </div>
   </div>
   <div class="stats-row">
-    <div class="stat-pill"><div class="val" id="poids-current" style="color:var(--accent2)">--</div><div class="lbl">Poids actuel</div></div>
-    <div class="stat-pill"><div class="val" id="poids-start" style="color:var(--muted)">--</div><div class="lbl">Poids initial</div></div>
-    <div class="stat-pill"><div class="val" id="poids-delta" style="color:var(--accent3)">--</div><div class="lbl">Variation totale</div></div>
-    <div class="stat-pill"><div class="val" id="poids-min" style="color:var(--accent3)">--</div><div class="lbl">Minimum</div></div>
+    <div class="stat-pill"><div class="val" id="poids-avg7" style="color:var(--accent2)">--</div><div class="lbl">Moy. 7 derniers j.</div></div>
+    <div class="stat-pill"><div class="val" id="poids-avg7-prev" style="color:var(--muted)">--</div><div class="lbl">Moy. 7j précédents</div></div>
+    <div class="stat-pill"><div class="val" id="poids-delta" style="color:var(--accent3)">--</div><div class="lbl">Évolution</div></div>
+    <div class="stat-pill"><div class="val" id="poids-trend" style="color:var(--accent3)">--</div><div class="lbl">Tendance</div></div>
   </div>
   <div class="card"><h2>📊 Courbe de poids</h2><div class="chart-wrap tall"><canvas id="poidsChart"></canvas></div></div>
   <div class="card"><h2>📋 Historique</h2><div id="poids-history"></div></div>
@@ -1941,13 +1941,29 @@ function renderPoids(){
   document.getElementById('poids-value').value=cur||'';
 
   const allPoids=Object.keys(data).sort().filter(k=>data[k].poids!=null).map(k=>({date:k,val:data[k].poids}));
-  const first=allPoids[0],last=allPoids[allPoids.length-1];
-  document.getElementById('poids-current').textContent=cur?cur+' kg':'--';
-  document.getElementById('poids-start').textContent=first?first.val+' kg':'--';
-  const delta=first&&last?+(last.val-first.val).toFixed(1):null;
-  document.getElementById('poids-delta').textContent=delta!=null?(delta>=0?'+'+delta:delta)+' kg':'--';
-  const minV=allPoids.length?Math.min(...allPoids.map(p=>p.val)):null;
-  document.getElementById('poids-min').textContent=minV?minV+' kg':'--';
+
+  // Calcul des moyennes sur 7j et 7j précédents à partir d'aujourd'hui
+  const today=new Date();today.setHours(12,0,0,0);
+  const d7=new Date(today);d7.setDate(today.getDate()-7);
+  const d14=new Date(today);d14.setDate(today.getDate()-14);
+  const w1=allPoids.filter(p=>{const d=new Date(p.date+'T12:00:00');return d>=d7&&d<=today;});
+  const w2=allPoids.filter(p=>{const d=new Date(p.date+'T12:00:00');return d>=d14&&d<d7;});
+  const avg=arr=>arr.length?+(arr.reduce((s,p)=>s+p.val,0)/arr.length).toFixed(1):null;
+  const avg7=avg(w1),avg7p=avg(w2);
+  const delta=avg7!=null&&avg7p!=null?+(avg7-avg7p).toFixed(1):null;
+
+  document.getElementById('poids-avg7').textContent=avg7!=null?avg7+' kg':'--';
+  document.getElementById('poids-avg7-prev').textContent=avg7p!=null?avg7p+' kg':'--';
+  const deltaEl=document.getElementById('poids-delta');
+  if(delta!=null){
+    deltaEl.textContent=(delta>=0?'+':'')+delta+' kg';
+    deltaEl.style.color=delta>0?'var(--accent2)':delta<0?'var(--accent3)':'var(--muted)';
+  } else { deltaEl.textContent='--'; deltaEl.style.color='var(--muted)'; }
+  const trendEl=document.getElementById('poids-trend');
+  if(delta!=null){
+    trendEl.textContent=delta>0.2?'📈 Prise':delta<-0.2?'📉 Perte':'➡ Stable';
+    trendEl.style.color=delta>0.2?'var(--accent2)':delta<-0.2?'var(--accent3)':'var(--muted)';
+  } else { trendEl.textContent='--'; trendEl.style.color='var(--muted)'; }
 
   destroyChart('poidsChart');
   if(allPoids.length>=2){
@@ -2313,8 +2329,14 @@ function renderProgBlock(block,bi,dw){
           <option value="">-- Exercice --</option>
           ${Object.entries(MUSCLE_DB).map(([m,md])=>`<optgroup label="${m}">${md.exercises.map(e=>`<option value="${e}" ${e===ex.name?'selected':''}>${e}</option>`).join('')}</optgroup>`).join('')}
         </select>
-        <input type="number" placeholder="Séries" value="${ex.sets||4}" min="1" max="10" style="width:70px" onchange="updateProgEx(${dw},${bi},${ei},'sets',parseInt(this.value))">
-        <input type="number" placeholder="Reps" value="${ex.reps||10}" min="1" max="50" style="width:70px" onchange="updateProgEx(${dw},${bi},${ei},'reps',parseInt(this.value))">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:.62rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Séries</label>
+          <input type="number" placeholder="4" value="${ex.sets||4}" min="1" max="10" style="width:60px" onchange="updateProgEx(${dw},${bi},${ei},'sets',parseInt(this.value))">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:.62rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Reps visées</label>
+          <input type="number" placeholder="10" value="${ex.reps||10}" min="1" max="50" style="width:60px" onchange="updateProgEx(${dw},${bi},${ei},'reps',parseInt(this.value))">
+        </div>
       </div>`;
   }).join('');
 
