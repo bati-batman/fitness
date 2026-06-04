@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Fitness — Baptiste</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -800,23 +799,16 @@ const LAST_SAVE_KEY='fitness_last_save';
 const JOURS=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
 const MOIS=['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
 
-// ===================== SUPABASE CLOUD SYNC =====================
+// ===================== SUPABASE CLOUD SYNC (REST API directe — pas de CDN) =====================
 const _SB_URL='https://ggacsrxwsvgsnpmjvtcv.supabase.co';
 const _SB_KEY='sb_publishable_AXIwUI_nj7dYxEPmMNSzEQ_RkbmAN-s';
-let _sb=null;
+const _SB_HEADERS={
+  'apikey':_SB_KEY,
+  'Authorization':'Bearer '+_SB_KEY,
+  'Content-Type':'application/json',
+  'Prefer':'resolution=merge-duplicates,return=minimal'
+};
 
-function _initSupabase(){
-  try{
-    const lib=window.supabase||window.Supabase;
-    if(!lib||!lib.createClient) throw new Error('lib not loaded');
-    _sb=lib.createClient(_SB_URL,_SB_KEY);
-    _setCloudStatus('ok','☁️');
-  }catch(e){
-    console.warn('[Cloud] Init failed',e);
-    _sb=null;
-    _setCloudStatus('off','⚠️');
-  }
-}
 function _setCloudStatus(state,label){
   const dot=document.getElementById('cloudDot');
   const txt=document.getElementById('cloudStatus');
@@ -825,98 +817,90 @@ function _setCloudStatus(state,label){
   txt.textContent=label;
 }
 
-// Pousse une clé/valeur vers Supabase (non-bloquant)
+async function _sbFetch(path,options){
+  const res=await fetch(_SB_URL+path,{headers:_SB_HEADERS,...options});
+  if(!res.ok){const t=await res.text().catch(()=>'');throw new Error('HTTP '+res.status+' '+t);}
+  return res;
+}
+
+// Upsert une ligne dans fitness_store
 async function _syncToCloud(key,value){
-  if(!_sb)return;
   try{
-    _setCloudStatus('sync','☁️ Sync…');
-    const {error}=await _sb.from('fitness_store').upsert({key,value,updated_at:new Date().toISOString()},{onConflict:'key'});
-    if(error)throw error;
-    _setCloudStatus('ok','☁️ Sync OK');
+    _setCloudStatus('sync','☁️');
+    await _sbFetch('/rest/v1/fitness_store',{
+      method:'POST',
+      body:JSON.stringify({key,value,updated_at:new Date().toISOString()})
+    });
+    _setCloudStatus('ok','☁️');
   }catch(e){
-    console.warn('[Cloud] syncToCloud failed',e);
-    _setCloudStatus('off','☁️ Erreur sync');
+    console.warn('[Cloud] sync failed',e);
+    _setCloudStatus('off','⚠️');
   }
 }
 
-// Charge toutes les données cloud — le cloud est TOUJOURS la référence
+// Charge toutes les données cloud
 async function _loadFromCloud(){
-  if(!_sb)return;
   try{
-    _setCloudStatus('sync','☁️ Chargement…');
-    const {data,error}=await _sb.from('fitness_store').select('*');
-    if(error)throw error;
-    if(!data||!data.length){_setCloudStatus('ok','☁️ Connecté');return;}
+    _setCloudStatus('sync','☁️');
+    const res=await _sbFetch('/rest/v1/fitness_store?select=*',{method:'GET',headers:{..._SB_HEADERS,'Prefer':''}});
+    const data=await res.json();
+    if(!data||!data.length){_setCloudStatus('ok','☁️');return;}
     let changed=false;
     data.forEach(row=>{
       if(row.key===DB_KEY){
         let local={};
         try{local=JSON.parse(localStorage.getItem(DB_KEY))||{};}catch(e){}
         const cloud=row.value||{};
-        // Stratégie : cloud gagne pour chaque date (source de vérité)
-        // Les dates locales absentes du cloud sont conservées
         const merged={...local};
         Object.keys(cloud).forEach(date=>{
-          if(!merged[date]){
-            merged[date]=cloud[date]; changed=true;
-          } else if(JSON.stringify(cloud[date])!==JSON.stringify(merged[date])){
-            // Cloud a une version différente → cloud gagne
-            merged[date]=cloud[date]; changed=true;
+          if(!merged[date]||JSON.stringify(cloud[date])!==JSON.stringify(merged[date])){
+            merged[date]=cloud[date];changed=true;
           }
         });
         if(changed)localStorage.setItem(DB_KEY,JSON.stringify(merged));
       } else {
-        // Prog, BMR : cloud gagne toujours
         const cloudVal=JSON.stringify(row.value);
-        const localVal=localStorage.getItem(row.key);
-        if(cloudVal!==localVal){
-          localStorage.setItem(row.key,cloudVal);
-          changed=true;
+        if(cloudVal!==localStorage.getItem(row.key)){
+          localStorage.setItem(row.key,cloudVal);changed=true;
         }
       }
     });
-    _setCloudStatus('ok','☁️ Sync OK');
-    if(changed)showToast('☁️ Données cloud chargées');
+    _setCloudStatus('ok','☁️');
+    if(changed)showToast('☁️ Données synchronisées');
   }catch(e){
-    console.warn('[Cloud] loadFromCloud failed',e);
-    _setCloudStatus('off','☁️ Erreur réseau');
+    console.warn('[Cloud] load failed',e);
+    _setCloudStatus('off','⚠️');
   }
 }
 
-// Force sync manuelle — bouton utilisateur
+// Force sync manuelle
 async function forceSyncAll(){
-  if(!_sb){showToast('⚠️ Cloud non connecté');return;}
-  _setCloudStatus('sync','☁️ Sync en cours…');
-  showToast('☁️ Synchronisation en cours…');
+  _setCloudStatus('sync','☁️');
+  showToast('☁️ Synchronisation…');
   try{
     const rows=[
       {key:DB_KEY,value:getData(),updated_at:new Date().toISOString()},
       {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
       {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
     ];
-    const {error}=await _sb.from('fitness_store').upsert(rows,{onConflict:'key'});
-    if(error)throw error;
-    _setCloudStatus('ok','☁️ Sync OK');
-    showToast('✅ Toutes les données synchronisées !');
+    await _sbFetch('/rest/v1/fitness_store',{method:'POST',body:JSON.stringify(rows)});
+    _setCloudStatus('ok','☁️');
+    showToast('✅ Tout synchronisé !');
   }catch(e){
-    _setCloudStatus('off','☁️ Erreur');
+    _setCloudStatus('off','⚠️');
     showToast('❌ Sync échoué : '+e.message);
-    console.error('[Cloud] forceSyncAll',e);
   }
 }
 
-// Pousse toutes les données locales vers le cloud (au chargement)
 async function _pushAllToCloud(){
-  if(!_sb)return;
   try{
     const rows=[
       {key:DB_KEY,value:getData(),updated_at:new Date().toISOString()},
       {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
       {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
     ];
-    const {error}=await _sb.from('fitness_store').upsert(rows,{onConflict:'key'});
-    if(error)throw error;
-  }catch(e){console.warn('[Cloud] pushAllToCloud failed',e);}
+    await _sbFetch('/rest/v1/fitness_store',{method:'POST',body:JSON.stringify(rows)});
+  }catch(e){console.warn('[Cloud] push failed',e);}
 }
 
 // ===================== MUSCLE DATABASE =====================
@@ -2464,14 +2448,7 @@ function renderAll(){
 
   _cleanOldSnapshots();
 
-  // Init Supabase — retry si le CDN met du temps à charger (mobile)
-  _initSupabase();
-  if(!_sb){
-    setTimeout(()=>{
-      _initSupabase();
-      if(_sb) _loadFromCloud().then(()=>{renderAll();});
-    },1500);
-  }
+  // Sync cloud au démarrage (REST API directe, pas de CDN)
   _loadFromCloud().then(()=>{renderAll();populateOrmExercises();});
 
   // Populate 1RM exercise list
