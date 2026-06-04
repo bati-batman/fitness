@@ -236,6 +236,17 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 .ws-count { font-size:.66rem; color:var(--muted); }
 .ws-count { font-size:.66rem; color:var(--muted); }
 .ws-rest-lbl { font-size:.72rem; color:var(--muted); font-style:italic; }
+/* Mode selector Séance / Repos */
+.day-mode-bar { display:flex; gap:6px; margin-bottom:16px; }
+.day-mode-btn { flex:1; padding:10px 6px; border-radius:10px; border:2px solid var(--border); background:transparent; color:var(--muted); font-size:.86rem; font-weight:700; cursor:pointer; transition:all .15s; text-align:center; }
+.day-mode-btn:hover { border-color:var(--accent); color:var(--accent); }
+.day-mode-btn.active-train { border-color:var(--accent3); background:rgba(67,233,123,.1); color:var(--accent3); }
+.day-mode-btn.active-rest  { border-color:#a78bfa; background:rgba(167,139,250,.1); color:#a78bfa; }
+.ws-day.is-rest { border-color:rgba(167,139,250,.4); background:rgba(167,139,250,.06); }
+.ws-day.is-rest .ws-day-name { color:#a78bfa; }
+.rest-day-card { text-align:center; padding:28px 20px; }
+.rest-day-card .rest-icon { font-size:2.4rem; margin-bottom:10px; }
+.rest-day-card p { color:var(--muted); font-size:.88rem; }
 .ws-today-pill { font-size:.6rem; font-weight:800; background:var(--accent3); color:#000; border-radius:20px; padding:1px 6px; text-transform:uppercase; }
 
 /* EXERCISE NAME SELECT IN QUICK ENTRY */
@@ -496,6 +507,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     </div>
   </div>
   <div class="save-bar-right">
+    <button class="btn-import" onclick="forceSyncAll()" title="Forcer la synchronisation cloud" style="border-color:var(--accent);color:var(--accent)">☁️ Sync</button>
     <button class="btn-import" onclick="importData()" title="Charger un fichier fitness-data.json">⬆ Importer</button>
     <button class="btn-export" onclick="exportData()" title="Sauvegarder toutes tes données (Ctrl+S)">⬇ Exporter (Ctrl+S)</button>
   </div>
@@ -689,8 +701,11 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   <!-- MON PROGRAMME -->
   <div id="sub-programme" class="subsection">
     <div class="card">
-      <h2>📋 Programme hebdomadaire</h2>
-      <p style="color:var(--muted);font-size:.84rem;margin-bottom:16px">Définis tes exercices par jour. Le programme s'affiche automatiquement dans la séance.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
+        <h2 style="margin-bottom:0">📋 Programme hebdomadaire</h2>
+        <span id="prog-save-indicator" style="font-size:.78rem;color:var(--accent3);font-weight:700;opacity:0;transition:opacity .4s">✅ Sauvegardé</span>
+      </div>
+      <p style="color:var(--muted);font-size:.84rem;margin-bottom:16px">Définis tes exercices par jour. Le programme se sauvegarde automatiquement.</p>
       <div id="weeklySchedule" class="weekly-schedule"></div>
       <div id="progDayEditor"><div class="empty"><div class="icon">📅</div>Sélectionne un jour pour l'éditer</div></div>
     </div>
@@ -894,6 +909,28 @@ async function _loadFromCloud(){
   }
 }
 
+// Force sync manuelle — bouton utilisateur
+async function forceSyncAll(){
+  if(!_sb){showToast('⚠️ Cloud non connecté');return;}
+  _setCloudStatus('sync','☁️ Sync en cours…');
+  showToast('☁️ Synchronisation en cours…');
+  try{
+    const rows=[
+      {key:DB_KEY,value:getData(),updated_at:new Date().toISOString()},
+      {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
+      {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
+    ];
+    const {error}=await _sb.from('fitness_store').upsert(rows,{onConflict:'key'});
+    if(error)throw error;
+    _setCloudStatus('ok','☁️ Sync OK');
+    showToast('✅ Toutes les données synchronisées !');
+  }catch(e){
+    _setCloudStatus('off','☁️ Erreur');
+    showToast('❌ Sync échoué : '+e.message);
+    console.error('[Cloud] forceSyncAll',e);
+  }
+}
+
 // Pousse toutes les données locales vers le cloud (au chargement)
 async function _pushAllToCloud(){
   if(!_sb)return;
@@ -912,7 +949,7 @@ async function _pushAllToCloud(){
 // Priorités basées sur le profil Baptiste : focus pecs/biceps, prise de masse
 const MUSCLE_DB = {
   'Pectoraux':       { priority:1, color:'#ff6584', label:'Pecs',    icon:'🫁',
-    exercises:['Développé couché barre','Développé couché décliné','Développé couché haltères','Développé incliné barre','Développé incliné haltères','Dips','Écarté haltères','Écarté poulie','Pompes','Press horizontal poulie','Press horizontal machine'] },
+    exercises:['Développé couché barre','Développé couché décliné','Développé couché haltères','Développé incliné barre','Développé incliné haltères','Dips','Écarté haltères','Écarté poulie','Pec fly machine incliné','Pompes','Press horizontal poulie','Press horizontal machine'] },
   'Biceps':          { priority:2, color:'#43e97b', label:'Biceps',  icon:'💪',
     exercises:['Curl biceps barre','Curl biceps haltères','Curl câble','Curl concentré','Curl haltères banc incliné','Curl incliné haltères','Curl marteau','Curl marteau haltère banc incliné'] },
   'Dos':             { priority:3, color:'#6c63ff', label:'Dos',     icon:'🔙',
@@ -963,7 +1000,13 @@ function _cleanOldSnapshots(){
   });
 }
 function getProg(){ try{return JSON.parse(localStorage.getItem(PROG_KEY))||{};}catch(e){return{};} }
-function saveProg(p){ localStorage.setItem(PROG_KEY,JSON.stringify(p)); _syncToCloud(PROG_KEY,p); }
+function saveProg(p){
+  localStorage.setItem(PROG_KEY,JSON.stringify(p));
+  _syncToCloud(PROG_KEY,p);
+  // Indicateur visuel discret
+  const ind=document.getElementById('prog-save-indicator');
+  if(ind){ind.style.opacity='1';clearTimeout(ind._t);ind._t=setTimeout(()=>ind.style.opacity='0',2000);}
+}
 function getBmrProfile(){ try{return JSON.parse(localStorage.getItem(BMR_KEY))||{};}catch(e){return{};} }
 function saveBmrProfile(p){ localStorage.setItem(BMR_KEY,JSON.stringify(p)); _syncToCloud(BMR_KEY,p); }
 
@@ -1119,9 +1162,7 @@ function saveCalories(){
   if(isNaN(kcal)||kcal<=0){showToast('⚠️ Entre un nombre valide');return;}
   const data=getData(),date=getDateKey();
   getOrCreate(data,date).kcal_total=Math.round(kcal);
-  localStorage.setItem(DB_KEY,JSON.stringify(data));
-  _syncToCloud(DB_KEY,data).then(()=>showToast('✅ Calories sauvegardées !')).catch(()=>showToast('⚠️ Local OK, cloud KO'));
-  silentExport().catch(()=>{});renderCalories();
+  saveData(data);silentExport().catch(()=>{});showToast('✅ Calories enregistrées');renderCalories();
 }
 function clearCalories(){
   const data=getData(),date=getDateKey();
@@ -1576,7 +1617,23 @@ function renderProgPreview(){
   const dw=new Date(date+'T12:00:00').getDay();
   const prog=getProg();
   const dayProg=prog[dw];
-  if(!dayProg||!dayProg.blocks||!dayProg.blocks.length){box.innerHTML='';return;}
+  if(dayProg&&dayProg.isRest){
+    box.innerHTML=`<div class="card rest-day-card">
+      <div class="rest-icon">😴</div>
+      <p style="font-weight:700;color:var(--text);font-size:1rem;margin-bottom:6px">Jour de repos</p>
+      <p>Récupération active — pas d'entraînement prévu aujourd'hui.</p>
+    </div>`;
+    return;
+  }
+  if(!dayProg||!dayProg.blocks||!dayProg.blocks.length){
+    box.innerHTML=`<div class="card" style="text-align:center;padding:28px 20px">
+      <div style="font-size:2.2rem;margin-bottom:10px">📋</div>
+      <p style="color:var(--text);font-weight:700;font-size:.95rem;margin-bottom:6px">Aucun programme pour ${JOURS[dw]}</p>
+      <p style="color:var(--muted);font-size:.84rem;margin-bottom:16px">Configure tes exercices pour ce jour dans "Mon Programme".</p>
+      <button class="btn btn-primary" onclick="document.querySelector('.subtab[onclick*=programme]').click()">📋 Configurer ${JOURS[dw]}</button>
+    </div>`;
+    return;
+  }
 
   const data=getData();
   const todayExs=(data[date]||{}).exercises||[];
@@ -1725,16 +1782,9 @@ function saveFromPreview(){
   newExs.forEach(e=>{ if(e.setData) setsBackup[e.name]=e.setData; });
   _editBackup={date,sets:setsBackup};
   localStorage.setItem(EDIT_BACKUP_KEY,JSON.stringify(_editBackup));
-  // Sauvegarde locale immédiate
-  localStorage.setItem(DB_KEY,JSON.stringify(data));
-  showToast('💾 Sauvegarde en cours…');
-  // Sync cloud synchrone — confirme quand Supabase répond
-  _syncToCloud(DB_KEY,data).then(()=>{
-    showToast('✅ Séance sauvegardée !');
-  }).catch(()=>{
-    showToast('⚠️ Sauvegarde locale OK, sync cloud échoué');
-  });
+  saveData(data); // snapshot + markUnsaved + syncToCloud
   silentExport().catch(()=>{});
+  showToast('✅ Séance enregistrée !');
   renderExercises();
 }
 
@@ -1775,9 +1825,7 @@ function saveSteps(){
   if(isNaN(val)||val<0){showToast('⚠️ Entre un nombre valide');return;}
   const data=getData(),date=getDateKey();
   getOrCreate(data,date).steps=val;
-  localStorage.setItem(DB_KEY,JSON.stringify(data));
-  _syncToCloud(DB_KEY,data).then(()=>showToast('✅ Pas sauvegardés !')).catch(()=>showToast('⚠️ Local OK, cloud KO'));
-  silentExport().catch(()=>{});renderSteps();
+  saveData(data);silentExport().catch(()=>{});showToast('✅ Pas enregistrés');renderSteps();
 }
 function saveStepsGoal(){
   const val=parseInt(document.getElementById('steps-goal-input').value);
@@ -2097,16 +2145,23 @@ function renderProgrammeEditor(){
   if(!schedEl)return;
   schedEl.innerHTML=JOURS.map((j,dw)=>{
     const dp=prog[dw];
+    const isRest=dp&&dp.isRest;
     const hasProg=dp&&dp.blocks&&dp.blocks.length>0;
     const isToday=dw===today;
     let cls='ws-day';
     if(hasProg)cls+=' has-prog';
+    if(isRest)cls+=' is-rest';
     if(dw===_editingDay)cls+=' selected';
     if(isToday)cls+=' is-today';
     return `<div class="${cls}" onclick="selectProgDay(${dw})">
       <div class="ws-day-name">${j.slice(0,3)}</div>
       ${isToday?'<div class="ws-today-pill">Auj.</div>':''}
-      ${hasProg?`<div class="ws-session-lbl">${dp.label||'Séance'}</div><div class="ws-count">${dp.blocks.length} bloc${dp.blocks.length>1?'s':''}</div>`:`<div class="ws-rest-lbl">Repos</div>`}
+      ${isRest
+        ? `<div class="ws-rest-lbl">😴 Repos</div>`
+        : hasProg
+          ? `<div class="ws-session-lbl">${dp.label||'Séance'}</div><div class="ws-count">${dp.blocks.length} bloc${dp.blocks.length>1?'s':''}</div>`
+          : `<div class="ws-rest-lbl">—</div>`
+      }
     </div>`;
   }).join('');
 
@@ -2123,10 +2178,28 @@ function renderDayEditor(dw){
   const dp=prog[dw]||{label:'',blocks:[]};
   const edEl=document.getElementById('progDayEditor');
   if(!edEl)return;
+  const isRest=dp.isRest||false;
+
+  if(isRest){
+    edEl.innerHTML=`
+      <div class="day-mode-bar">
+        <button class="day-mode-btn" onclick="setDayMode(${dw},'train')">🏋️ Séance</button>
+        <button class="day-mode-btn active-rest">😴 Repos</button>
+      </div>
+      <div class="rest-day-card">
+        <div class="rest-icon">😴</div>
+        <p style="font-weight:700;color:var(--text);margin-bottom:6px">${JOURS[dw]} — Jour de repos</p>
+        <p>Ce jour est marqué comme repos. Aucun exercice ne sera demandé.</p>
+      </div>`;
+    return;
+  }
 
   const blocksHTML=(dp.blocks||[]).map((block,bi)=>renderProgBlock(block,bi,dw)).join('');
-
   edEl.innerHTML=`
+    <div class="day-mode-bar">
+      <button class="day-mode-btn active-train">🏋️ Séance</button>
+      <button class="day-mode-btn" onclick="setDayMode(${dw},'rest')">😴 Repos</button>
+    </div>
     <div style="margin-bottom:14px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
       <div class="form-group" style="max-width:260px">
         <label>Nom de la séance (${JOURS[dw]})</label>
@@ -2142,6 +2215,22 @@ function renderDayEditor(dw){
   `;
   renderProgRecap(dw);
   initDragDrop(dw);
+}
+
+function setDayMode(dw, mode){
+  const prog=getProg();
+  if(!prog[dw]) prog[dw]={label:'',blocks:[]};
+  if(mode==='rest'){
+    prog[dw].isRest=true;
+    prog[dw].blocks=[];
+    if(!prog[dw].label||prog[dw].label==='') prog[dw].label='Repos';
+  } else {
+    prog[dw].isRest=false;
+    if(prog[dw].label==='Repos') prog[dw].label='';
+  }
+  saveProg(prog);
+  renderDayEditor(dw);
+  renderProgrammeEditor();
 }
 
 function renderProgBlock(block,bi,dw){
