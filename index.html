@@ -417,9 +417,14 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   .cal-day { min-height:44px; } .cal-day-num { font-size:.75rem; }
   .lt-grid { grid-template-columns:1fr 1fr; }
   /* Formulaire de séance : champs plus grands au touch */
-  .sqe-g input { padding:10px 10px; font-size:.95rem; }
-  .sets-btn { width:36px; height:36px; font-size:1.2rem; }
-  .biset-ex-tag { font-size:.68rem; }
+  .sqe-g input { padding:6px 6px; font-size:.82rem; width:58px; }
+  .sqe-g input.wide { width:74px; }
+  .sqe-g label { font-size:.6rem; }
+  .sets-btn { width:30px; height:30px; font-size:1rem; }
+  .biset-ex-tag { font-size:.66rem; }
+  .set-row { padding:6px 10px; }
+  .set-row-title { font-size:.68rem; margin-bottom:5px; }
+  .set-row-fields { gap:6px; }
 }
 /* ===== SIDEBAR DESKTOP ===== */
 .desktop-sidebar {
@@ -443,6 +448,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 @media(min-width:701px){
   .burger-btn { display:none !important; }
   .mobile-menu-overlay,.mobile-menu { display:none !important; }
+  .cloud-indicator-mobile { display:none !important; }
   nav { display:none !important; }
   .desktop-sidebar { display:flex; }
   header { padding-left:236px; }
@@ -485,7 +491,15 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     </button>
     <h1>Suivi avec Bati</h1>
   </div>
-  <div id="program-header-badge"></div>
+  <div style="display:flex;align-items:center;gap:6px">
+    <div id="program-header-badge"></div>
+    <!-- Statut cloud visible sur mobile (la sidebar est cachée sur mobile) -->
+    <div class="cloud-indicator-mobile" style="display:flex;align-items:center;gap:4px">
+      <div class="save-dot cloud-dot-el" id="cloudDotMobile"></div>
+      <span class="cloud-status-el" id="cloudStatusMobile" style="font-size:.72rem;color:var(--muted)">☁️</span>
+      <button onclick="forceSyncAll()" style="background:transparent;border:none;cursor:pointer;color:var(--muted);font-size:.8rem;padding:2px 4px;border-radius:5px" title="Sync">↻</button>
+    </div>
+  </div>
 </header>
 
 <!-- MENU BURGER MOBILE -->
@@ -856,11 +870,17 @@ const _SB_HDR={
 };
 
 function _setCloudStatus(state,label){
+  const cls='save-dot'+(state==='ok'?' saved':state==='sync'?' unsaved':'');
+  // Sidebar desktop
   const dot=document.getElementById('cloudDot');
   const txt=document.getElementById('cloudStatus');
-  if(!dot||!txt)return;
-  dot.className='save-dot'+(state==='ok'?' saved':state==='sync'?' unsaved':'');
-  txt.textContent=label;
+  if(dot) dot.className=cls;
+  if(txt) txt.textContent=label;
+  // Header mobile
+  const dotM=document.getElementById('cloudDotMobile');
+  const txtM=document.getElementById('cloudStatusMobile');
+  if(dotM) dotM.className=cls;
+  if(txtM) txtM.textContent=label;
 }
 
 async function _sbPost(rows){
