@@ -419,13 +419,62 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   .sets-btn { width:36px; height:36px; font-size:1.2rem; }
   .biset-ex-tag { font-size:.68rem; }
 }
+/* ===== SIDEBAR DESKTOP ===== */
+.desktop-sidebar {
+  display:none;
+  position:fixed; top:0; left:0; bottom:0; width:220px;
+  background:var(--card); border-right:1px solid var(--border);
+  flex-direction:column; z-index:50; overflow-y:auto;
+}
+.dsb-logo { padding:20px 20px 14px; border-bottom:1px solid var(--border); }
+.dsb-logo h1 { font-size:1rem; font-weight:800; background:linear-gradient(135deg,#6c63ff,#ff6584); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.dsb-nav { padding:10px 0; flex:1; }
+.dsb-section-lbl { font-size:.68rem; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; padding:10px 18px 4px; }
+.dsb-item { display:flex; align-items:center; gap:10px; padding:11px 18px; cursor:pointer; border:none; background:transparent; color:var(--muted); font-size:.88rem; font-weight:600; width:100%; text-align:left; transition:all .15s; border-left:3px solid transparent; }
+.dsb-item:hover { background:var(--card2); color:var(--text); }
+.dsb-item.active { color:var(--text); background:rgba(108,99,255,.1); border-left-color:var(--accent); }
+.dsb-item .nav-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.dsb-item.dsb-action { color:var(--muted); font-size:.82rem; }
+.dsb-item.dsb-action:hover { color:var(--accent); }
+.dsb-footer { padding:12px 18px; border-top:1px solid var(--border); display:flex; align-items:center; gap:8px; font-size:.75rem; color:var(--muted); }
+
 @media(min-width:701px){
   .burger-btn { display:none !important; }
   .mobile-menu-overlay,.mobile-menu { display:none !important; }
+  nav { display:none !important; }
+  .desktop-sidebar { display:flex; }
+  header { padding-left:236px; }
+  .week-band-wrap { padding-left:236px; }
+  main { margin-left:220px; }
 }
 </style>
 </head>
 <body>
+
+<!-- SIDEBAR DESKTOP -->
+<aside class="desktop-sidebar" id="desktop-sidebar">
+  <div class="dsb-logo">
+    <h1>Suivi avec Bati</h1>
+    <div style="font-size:.72rem;color:var(--muted);margin-top:4px" id="program-sidebar-badge"></div>
+  </div>
+  <div class="dsb-nav">
+    <div class="dsb-section-lbl">Navigation</div>
+    <button class="dsb-item" onclick="deskNav('overview',this)"><span class="nav-dot" style="background:#6c63ff"></span>Vue d'ensemble</button>
+    <button class="dsb-item active" onclick="deskNav('exercices',this)"><span class="nav-dot" style="background:#43e97b"></span>Exercices</button>
+    <button class="dsb-item" onclick="deskNav('calories',this)"><span class="nav-dot" style="background:#f7971e"></span>Calories</button>
+    <button class="dsb-item" onclick="deskNav('steps',this)"><span class="nav-dot" style="background:#6c63ff"></span>Pas</button>
+    <button class="dsb-item" onclick="deskNav('poids',this)"><span class="nav-dot" style="background:#ff6584"></span>Poids</button>
+    <button class="dsb-item" onclick="deskNav('analyse',this)"><span class="nav-dot" style="background:#a78bfa"></span>Analyse</button>
+    <div class="dsb-section-lbl" style="margin-top:8px">Données</div>
+    <button class="dsb-item dsb-action" onclick="forceSyncAll()">↻ Forcer sync</button>
+    <button class="dsb-item dsb-action" onclick="document.getElementById('importFileInput').click()">⬆ Importer backup</button>
+  </div>
+  <div class="dsb-footer">
+    <div class="save-dot" id="cloudDot"></div>
+    <span id="cloudStatus">☁️</span>
+    <button onclick="forceSyncAll()" title="Sync" style="background:transparent;border:none;cursor:pointer;color:var(--muted);margin-left:auto;font-size:.85rem" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">↻</button>
+  </div>
+</aside>
 
 <header>
   <div style="display:flex;align-items:center;gap:12px">
@@ -434,14 +483,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     </button>
     <h1>Suivi avec Bati</h1>
   </div>
-  <div style="display:flex;align-items:center;gap:10px">
-    <div id="program-header-badge"></div>
-    <div style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:var(--muted)">
-      <div class="save-dot" id="cloudDot"></div>
-      <span id="cloudStatus">☁️</span>
-    </div>
-    <button onclick="forceSyncAll()" title="Forcer sync" style="background:transparent;border:none;cursor:pointer;font-size:.8rem;color:var(--muted);padding:4px 6px;border-radius:6px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">↻</button>
-  </div>
+  <div id="program-header-badge"></div>
 </header>
 
 <!-- MENU BURGER MOBILE -->
@@ -1110,6 +1152,16 @@ function showTab(name,el){
   document.getElementById('sec-'+name).classList.add('active');
   if(el) el.classList.add('active');
   renderAll();
+}
+function deskNav(name,el){
+  document.querySelectorAll('.dsb-item').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  // Sync aussi les onglets mobiles
+  document.querySelectorAll('.mobile-nav-item').forEach(b=>b.classList.remove('active'));
+  const mobileBtn=document.querySelector(`.mobile-nav-item[onclick*="'${name}'"]`);
+  if(mobileBtn) mobileBtn.classList.add('active');
+  showTab(name,null);
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 function openMobileMenu(){
   document.getElementById('mobile-menu').classList.add('open');
