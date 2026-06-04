@@ -435,7 +435,14 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     </button>
     <h1>Suivi avec Bati</h1>
   </div>
-  <div id="program-header-badge"></div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <div id="program-header-badge"></div>
+    <div style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:var(--muted)">
+      <div class="save-dot" id="cloudDot"></div>
+      <span id="cloudStatus">☁️</span>
+    </div>
+    <button onclick="forceSyncAll()" title="Forcer sync" style="background:transparent;border:none;cursor:pointer;font-size:.8rem;color:var(--muted);padding:4px 6px;border-radius:6px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">↻</button>
+  </div>
 </header>
 
 <!-- MENU BURGER MOBILE -->
@@ -476,42 +483,6 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   <button class="tab" onclick="showTab('analyse',this)"><span class="dot" style="background:#a78bfa"></span>Analyse</button>
 </nav>
 
-<!-- IMPORT BANNER (affiché si localStorage vide au démarrage) -->
-<div class="import-banner" id="import-banner">
-  <div class="import-banner-text">
-    <strong>📂 Aucune donnée trouvée dans ce navigateur.</strong><br>
-    Tu as déjà un fichier de sauvegarde (fitness-data.json) ? Importe-le pour retrouver tes séances.
-  </div>
-  <div class="import-banner-actions">
-    <button class="btn-banner-import" onclick="importData();document.getElementById('import-banner').style.display='none'">⬆ Charger mes données</button>
-    <button class="btn-banner-close" onclick="document.getElementById('import-banner').style.display='none'">Ignorer</button>
-  </div>
-</div>
-
-<!-- UNSAVED REMINDER (affiché après chaque saisie) -->
-<div class="unsaved-reminder" id="unsaved-reminder">
-  <span>💾 Données enregistrées dans le navigateur — <strong>pas encore sauvegardées sur fichier</strong> (Ctrl+S)</span>
-  <button class="btn-save-now" onclick="exportData();hideUnsavedReminder()">⬇ Sauvegarder maintenant</button>
-</div>
-
-<!-- SAVE BAR -->
-<div class="save-bar">
-  <div class="save-bar-left">
-    <div class="save-status">
-      <div class="save-dot" id="saveDot"></div>
-      <span id="saveStatus">Chargement…</span>
-    </div>
-    <div class="save-status" style="margin-left:10px">
-      <div class="save-dot" id="cloudDot"></div>
-      <span id="cloudStatus">☁️ Sync…</span>
-    </div>
-  </div>
-  <div class="save-bar-right">
-    <button class="btn-import" onclick="forceSyncAll()" title="Forcer la synchronisation cloud" style="border-color:var(--accent);color:var(--accent)">☁️ Sync</button>
-    <button class="btn-import" onclick="importData()" title="Charger un fichier fitness-data.json">⬆ Importer</button>
-    <button class="btn-export" onclick="exportData()" title="Sauvegarder toutes tes données (Ctrl+S)">⬇ Exporter (Ctrl+S)</button>
-  </div>
-</div>
 <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="handleImport(event)">
 
 <main>
