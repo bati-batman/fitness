@@ -184,7 +184,9 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 .sets-btn { width:28px; height:28px; border-radius:7px; border:1px solid var(--border); background:var(--card2); color:var(--text); cursor:pointer; font-size:1.1rem; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all .15s; line-height:1; }
 .sets-btn:hover { background:var(--accent); border-color:var(--accent); color:white; }
 .sets-count-in { width:44px; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:4px 6px; border-radius:7px; font-size:.9rem; font-weight:800; text-align:center; }
-.set-row { display:flex; gap:8px; align-items:flex-end; margin-bottom:7px; flex-wrap:wrap; }
+.set-row { display:flex; flex-direction:column; margin-bottom:10px; background:var(--card3); border-radius:9px; padding:8px 12px; }
+.set-row-title { font-size:.72rem; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:.06em; margin-bottom:7px; }
+.set-row-fields { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; }
 .set-num { font-size:.72rem; font-weight:800; color:var(--muted); min-width:22px; padding-bottom:8px; flex-shrink:0; }
 
 /* PROGRAMME PREVIEW */
@@ -509,13 +511,10 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <input type="date" id="globalDate" onchange="onDateChange()" style="display:none">
 <div class="week-band-wrap">
-  <button class="week-nav-btn" onclick="shiftWeek(-1)" title="Semaine précédente">‹</button>
+  <button class="week-nav-btn" onclick="shiftDate(-1)" title="Jour précédent">‹</button>
   <div class="week-band" id="week-band"></div>
-  <button class="week-nav-btn" onclick="shiftWeek(1)" title="Semaine suivante">›</button>
-  <div class="week-band-meta">
-    <div class="week-label" id="week-band-label"></div>
-    <button class="btn-today" onclick="goToday()">Auj.</button>
-  </div>
+  <button class="week-nav-btn" onclick="shiftDate(1)" title="Jour suivant">›</button>
+  <button class="btn-today" onclick="goToday()" style="flex-shrink:0">Auj.</button>
 </div>
 
 <nav>
@@ -1097,35 +1096,31 @@ function _dateToWeekOffset(dateStr){
 }
 function renderWeekBand(){
   const band=document.getElementById('week-band');
-  const lbl=document.getElementById('week-band-label');
   if(!band)return;
   const data=getData();
   const selected=getDateKey();
   const todayStr=new Date().toISOString().split('T')[0];
-  const monday=_getWeekMonday(_weekOffset);
-  const sunday=new Date(monday);sunday.setDate(monday.getDate()+6);
-  const fmOpts={day:'numeric',month:'short'};
-  if(lbl)lbl.textContent=monday.toLocaleDateString('fr-FR',fmOpts)+'\n–\n'+sunday.toLocaleDateString('fr-FR',fmOpts);
-  const DOWS=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
-  band.innerHTML=DOWS.map((d,i)=>{
-    const day=new Date(monday);day.setDate(monday.getDate()+i);
-    const ds=day.toISOString().split('T')[0];
+  const DOWS=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+  // Affiche 3 dates : veille, jour sélectionné, lendemain
+  band.innerHTML=[-1,0,1].map(offset=>{
+    const d=new Date(selected+'T12:00:00');
+    d.setDate(d.getDate()+offset);
+    const ds=d.toISOString().split('T')[0];
     const dd=data[ds]||{};
     const has=(dd.exercises&&dd.exercises.length>0)||dd.kcal_total||dd.steps;
     const isToday=ds===todayStr;
-    const isSel=ds===selected;
+    const isSel=offset===0;
     let cls='wbd';
     if(has)cls+=' has-data';
     if(isToday)cls+=' is-today';
     if(isSel)cls+=' is-selected';
     return `<div class="${cls}" onclick="goDate('${ds}')">
-      <div class="wbd-dow">${d}</div>
-      <div class="wbd-num">${day.getDate()}</div>
+      <div class="wbd-dow">${DOWS[d.getDay()]}</div>
+      <div class="wbd-num">${d.getDate()}</div>
       <div class="wbd-dot"></div>
     </div>`;
   }).join('');
 }
-function shiftWeek(delta){_weekOffset+=delta;renderWeekBand();}
 /* ---- DATE NAV ---- */
 function shiftDate(delta){const inp=document.getElementById('globalDate');const d=new Date(inp.value+'T12:00:00');d.setDate(d.getDate()+delta);inp.value=d.toISOString().split('T')[0];_weekOffset=_dateToWeekOffset(inp.value);onDateChange();}
 function goToday(){document.getElementById('globalDate').value=new Date().toISOString().split('T')[0];_weekOffset=0;onDateChange();}
@@ -1134,9 +1129,11 @@ function goDate(dateStr){document.getElementById('globalDate').value=dateStr;_we
 function onDateChange(){renderWeekBand();updateProgramBadge();renderAll();}
 function updateDateDisplay(){}
 function updateProgramBadge(){
-  const d=new Date(getDateKey()+'T12:00:00'),dw=d.getDay(),prog=getProg(),el=document.getElementById('program-header-badge');
-  if(prog[dw]&&prog[dw].label) el.innerHTML=`<span class="prog-badge">📋 ${JOURS[dw]} : ${prog[dw].label}</span>`;
-  else el.innerHTML='';
+  // Badge supprimé — plus affiché
+  const el=document.getElementById('program-header-badge');
+  if(el) el.innerHTML='';
+  const sb=document.getElementById('program-sidebar-badge');
+  if(sb) sb.innerHTML='';
 }
 
 // ===================== CHARTS =====================
@@ -1527,11 +1524,13 @@ function setRowHTML(bi,key,sn,defaultReps,defaultWeight,defaultMyo,refReps,refW)
   const refAttr=hasRef?` data-ref-reps="${refRepsVal}" data-ref-w="${refWVal}"`:'';
   const refBadge=hasRef?`<div class="ref-val">${refWVal>0?refWVal+'kg':''}${refWVal>0&&refRepsVal>0?' × ':''}${refRepsVal>0?refRepsVal+'r':''}</div><div class="ref-delta neutral"></div>`:'';
   return `<div class="set-row" data-set="${sn}"${refAttr}>
-    <span class="set-num">S${sn}</span>
-    <div class="sqe-g"><label>Poids kg</label><input type="number" value="${defaultWeight||''}" placeholder="0" min="0" step=".5" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="weight" oninput="updateDelta(this)"></div>
-    <div class="sqe-g"><label>Reps</label><input type="number" value="${defaultReps||''}" placeholder="10" min="1" max="100" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="reps" oninput="updateDelta(this)"></div>
-    <div class="sqe-g"><label>Myoreps</label><input type="text" value="${defaultMyo||''}" placeholder="5+4+3" class="wide" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="myoreps"></div>
-    ${hasRef?`<div class="set-ref">${refBadge}</div>`:''}
+    <div class="set-row-title">Série ${sn}</div>
+    <div class="set-row-fields">
+      <div class="sqe-g"><label>Poids kg</label><input type="number" value="${defaultWeight||''}" placeholder="0" min="0" step=".5" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="weight" oninput="updateDelta(this)"></div>
+      <div class="sqe-g"><label>Reps</label><input type="number" value="${defaultReps||''}" placeholder="10" min="1" max="100" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="reps" oninput="updateDelta(this)"></div>
+      <div class="sqe-g"><label>Myoreps</label><input type="text" value="${defaultMyo||''}" placeholder="5+4+3" class="wide" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="myoreps"></div>
+      ${hasRef?`<div class="set-ref">${refBadge}</div>`:''}
+    </div>
   </div>`;
 }
 
