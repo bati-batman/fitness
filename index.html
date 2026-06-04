@@ -459,6 +459,9 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     <button class="mobile-nav-item" onclick="mobileNav('steps',this)"><span class="nav-dot" style="background:#6c63ff"></span>Pas</button>
     <button class="mobile-nav-item" onclick="mobileNav('poids',this)"><span class="nav-dot" style="background:#ff6584"></span>Poids</button>
     <button class="mobile-nav-item" onclick="mobileNav('analyse',this)"><span class="nav-dot" style="background:#a78bfa"></span>Analyse</button>
+    <div class="mobile-week-label" style="margin-top:8px">Données</div>
+    <button class="mobile-nav-item" onclick="forceSyncAll();closeMobileMenu()"><span class="nav-dot" style="background:var(--accent)"></span>↻ Forcer sync</button>
+    <button class="mobile-nav-item" onclick="document.getElementById('importFileInput').click();closeMobileMenu()"><span class="nav-dot" style="background:var(--accent4)"></span>⬆ Importer backup</button>
   </div>
 </div>
 
@@ -853,8 +856,22 @@ async function _loadFromCloud(){
         const cloud=row.value||{};
         const merged={...local};
         Object.keys(cloud).forEach(date=>{
-          if(!merged[date]||JSON.stringify(cloud[date])!==JSON.stringify(merged[date])){
+          if(!merged[date]){
+            // Date absente en local → prend le cloud
             merged[date]=cloud[date];changed=true;
+          } else {
+            // Les deux ont cette date → garde la VERSION LA PLUS COMPLÈTE
+            const localEx=(merged[date].exercises||[]).length;
+            const cloudEx=(cloud[date].exercises||[]).length;
+            if(cloudEx>localEx){
+              // Cloud a plus d'exercices → cloud gagne
+              merged[date]=cloud[date];changed=true;
+            } else if(cloudEx===localEx&&cloudEx===0){
+              // Aucun exercice des deux → fusionne les champs (local prioritaire)
+              const day={...cloud[date],...merged[date]};
+              if(JSON.stringify(day)!==JSON.stringify(merged[date])){merged[date]=day;changed=true;}
+            }
+            // Sinon : local a plus d'exercices → local gagne (pas de changement)
           }
         });
         if(changed)localStorage.setItem(DB_KEY,JSON.stringify(merged));
