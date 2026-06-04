@@ -802,10 +802,12 @@ const LAST_SAVE_KEY='fitness_last_save';
 const JOURS=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
 const MOIS=['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
 
-// ===================== SUPABASE CLOUD SYNC (REST API directe — pas de CDN) =====================
+// ===================== SUPABASE CLOUD SYNC v2 — Architecture par-date =====================
+// Chaque jour est une ligne séparée → une synchro ratée ne peut plus effacer d'autres jours
 const _SB_URL='https://ggacsrxwsvgsnpmjvtcv.supabase.co';
 const _SB_KEY='sb_publishable_AXIwUI_nj7dYxEPmMNSzEQ_RkbmAN-s';
-const _SB_HEADERS={
+const _SB_DAY_PREFIX='fd_'; // 'fd_2026-05-19' = clé d'un jour
+const _SB_HDR={
   'apikey':_SB_KEY,
   'Authorization':'Bearer '+_SB_KEY,
   'Content-Type':'application/json',
@@ -820,89 +822,111 @@ function _setCloudStatus(state,label){
   txt.textContent=label;
 }
 
-async function _sbFetch(path,options){
-  const res=await fetch(_SB_URL+path,{headers:_SB_HEADERS,...options});
-  if(!res.ok){const t=await res.text().catch(()=>'');throw new Error('HTTP '+res.status+' '+t);}
-  return res;
+async function _sbPost(rows){
+  // rows = tableau d'objets {key, value, updated_at}
+  const res=await fetch(_SB_URL+'/rest/v1/fitness_store',{
+    method:'POST',
+    headers:_SB_HDR,
+    body:JSON.stringify(Array.isArray(rows)?rows:[rows])
+  });
+  if(!res.ok){const t=await res.text().catch(()=>'');throw new Error('HTTP '+res.status+': '+t);}
+}
+async function _sbGet(){
+  const res=await fetch(_SB_URL+'/rest/v1/fitness_store?select=*',{
+    headers:{..._SB_HDR,'Prefer':''}
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  return res.json();
 }
 
-// Upsert une ligne dans fitness_store
-async function _syncToCloud(key,value){
+// ── Sauvegarde d'UN seul jour vers Supabase (non-bloquant) ──────────────────
+async function _syncDay(dateKey,dayData){
+  if(!dateKey||!dayData) return;
   try{
-    _setCloudStatus('sync','☁️');
-    await _sbFetch('/rest/v1/fitness_store',{
-      method:'POST',
-      body:JSON.stringify({key,value,updated_at:new Date().toISOString()})
-    });
-    _setCloudStatus('ok','☁️');
-  }catch(e){
-    console.warn('[Cloud] sync failed',e);
-    _setCloudStatus('off','⚠️');
-  }
+    await _sbPost({key:_SB_DAY_PREFIX+dateKey,value:dayData,updated_at:new Date().toISOString()});
+  }catch(e){ console.warn('[Cloud] syncDay failed',e); _setCloudStatus('off','⚠️'); }
 }
 
-// Charge toutes les données cloud
+// ── Règle de fusion pour UN jour ─────────────────────────────────────────────
+function _mergeDay(local,cloud){
+  if(!local) return cloud;
+  if(!cloud) return local;
+  const lEx=(local.exercises||[]).length;
+  const cEx=(cloud.exercises||[]).length;
+  if(cEx>lEx) return cloud;           // cloud plus complet → prend cloud
+  if(lEx>0) return local;             // local a des exos → local gagne
+  // Aucun exercice → fusionne les champs scalaires (local prioritaire)
+  return {...cloud,...local};
+}
+
+// ── Charge toutes les données depuis Supabase et fusionne avec le local ──────
 async function _loadFromCloud(){
   try{
     _setCloudStatus('sync','☁️');
-    const res=await _sbFetch('/rest/v1/fitness_store?select=*',{method:'GET',headers:{..._SB_HEADERS,'Prefer':''}});
-    const data=await res.json();
-    if(!data||!data.length){_setCloudStatus('ok','☁️');return;}
+    const rows=await _sbGet();
+    if(!rows||!rows.length){_setCloudStatus('ok','☁️');return;}
+
+    let local={};
+    try{local=JSON.parse(localStorage.getItem(DB_KEY))||{};}catch(e){}
     let changed=false;
-    data.forEach(row=>{
-      if(row.key===DB_KEY){
-        let local={};
-        try{local=JSON.parse(localStorage.getItem(DB_KEY))||{};}catch(e){}
+
+    rows.forEach(row=>{
+      if(row.key.startsWith(_SB_DAY_PREFIX)){
+        // Ligne par-jour (nouveau format)
+        const date=row.key.slice(_SB_DAY_PREFIX.length);
+        const merged=_mergeDay(local[date],row.value);
+        if(JSON.stringify(merged)!==JSON.stringify(local[date])){local[date]=merged;changed=true;}
+
+      } else if(row.key===DB_KEY){
+        // Ancien format monolithique → migration : décompose en jours
+        // Ne prend les jours que s'ils sont absents en local
         const cloud=row.value||{};
-        const merged={...local};
         Object.keys(cloud).forEach(date=>{
-          if(!merged[date]){
-            // Date absente en local → prend le cloud
-            merged[date]=cloud[date];changed=true;
-          } else {
-            // Les deux ont cette date → garde la VERSION LA PLUS COMPLÈTE
-            const localEx=(merged[date].exercises||[]).length;
-            const cloudEx=(cloud[date].exercises||[]).length;
-            if(cloudEx>localEx){
-              // Cloud a plus d'exercices → cloud gagne
-              merged[date]=cloud[date];changed=true;
-            } else if(cloudEx===localEx&&cloudEx===0){
-              // Aucun exercice des deux → fusionne les champs (local prioritaire)
-              const day={...cloud[date],...merged[date]};
-              if(JSON.stringify(day)!==JSON.stringify(merged[date])){merged[date]=day;changed=true;}
-            }
-            // Sinon : local a plus d'exercices → local gagne (pas de changement)
+          if(!local[date]){local[date]=cloud[date];changed=true;}
+          else{
+            const merged=_mergeDay(local[date],cloud[date]);
+            if(JSON.stringify(merged)!==JSON.stringify(local[date])){local[date]=merged;changed=true;}
           }
         });
-        if(changed)localStorage.setItem(DB_KEY,JSON.stringify(merged));
-      } else {
+
+      } else if(row.key===PROG_KEY||row.key===BMR_KEY){
+        // Programme & BMR : cloud gagne seulement si local est absent
         const cloudVal=JSON.stringify(row.value);
-        if(cloudVal!==localStorage.getItem(row.key)){
+        if(!localStorage.getItem(row.key)){
           localStorage.setItem(row.key,cloudVal);changed=true;
         }
       }
     });
+
+    if(changed){localStorage.setItem(DB_KEY,JSON.stringify(local));}
     _setCloudStatus('ok','☁️');
-    if(changed)showToast('☁️ Données synchronisées');
+    if(changed) showToast('☁️ Données à jour');
   }catch(e){
     console.warn('[Cloud] load failed',e);
     _setCloudStatus('off','⚠️');
   }
 }
 
-// Force sync manuelle
+// ── Force sync complète — pousse chaque jour séparément ─────────────────────
 async function forceSyncAll(){
+  const d=getData();
+  if(!Object.keys(d).length){showToast('⚠️ Aucune donnée à synchroniser');return;}
   _setCloudStatus('sync','☁️');
   showToast('☁️ Synchronisation…');
   try{
     const rows=[
-      {key:DB_KEY,value:getData(),updated_at:new Date().toISOString()},
+      ...Object.entries(d).map(([date,day])=>({
+        key:_SB_DAY_PREFIX+date,value:day,updated_at:new Date().toISOString()
+      })),
       {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
       {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
     ];
-    await _sbFetch('/rest/v1/fitness_store',{method:'POST',body:JSON.stringify(rows)});
+    // Envoie par lots de 50 pour éviter les limites HTTP
+    for(let i=0;i<rows.length;i+=50){
+      await _sbPost(rows.slice(i,i+50));
+    }
     _setCloudStatus('ok','☁️');
-    showToast('✅ Tout synchronisé !');
+    showToast('✅ '+Object.keys(d).length+' jours synchronisés !');
   }catch(e){
     _setCloudStatus('off','⚠️');
     showToast('❌ Sync échoué : '+e.message);
@@ -910,17 +934,20 @@ async function forceSyncAll(){
 }
 
 async function _pushAllToCloud(){
-  // Ne pousse jamais si les données fitness sont vides — évite d'écraser le cloud
   const d=getData();
-  if(!Object.keys(d).length){console.warn('[Cloud] push aborted — données vides');return;}
+  if(!Object.keys(d).length) return;
   try{
-    const rows=[
-      {key:DB_KEY,value:d,updated_at:new Date().toISOString()},
-      {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
-      {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
-    ];
-    await _sbFetch('/rest/v1/fitness_store',{method:'POST',body:JSON.stringify(rows)});
-  }catch(e){console.warn('[Cloud] push failed',e);}
+    const rows=Object.entries(d).map(([date,day])=>({
+      key:_SB_DAY_PREFIX+date,value:day,updated_at:new Date().toISOString()
+    }));
+    for(let i=0;i<rows.length;i+=50) await _sbPost(rows.slice(i,i+50));
+  }catch(e){console.warn('[Cloud] pushAll failed',e);}
+}
+
+// ── Sauvegarde le programme et le BMR ────────────────────────────────────────
+async function _syncToCloud(key,value){
+  try{ await _sbPost({key,value,updated_at:new Date().toISOString()}); }
+  catch(e){ console.warn('[Cloud] syncMeta failed',e); }
 }
 
 // ===================== MUSCLE DATABASE =====================
@@ -958,14 +985,20 @@ function getMuscleColor(exName){ return (MUSCLE_DB[getMuscle(exName)]||{color:'#
 // ===================== STORAGE =====================
 function getData(){ try{return JSON.parse(localStorage.getItem(DB_KEY))||{};}catch(e){return{};} }
 function saveData(d){
+  const prev=getData();
   localStorage.setItem(DB_KEY,JSON.stringify(d));
-  // Snapshot quotidien automatique — filet de sécurité indestructible
+  // Snapshot quotidien (filet de sécurité local)
   try{
     const today=new Date().toISOString().split('T')[0];
     localStorage.setItem(SNAP_PREFIX+today,JSON.stringify({at:new Date().toISOString(),data:d}));
   }catch(e){}
   _markUnsaved();
-  _syncToCloud(DB_KEY,d); // ← sync cloud non-bloquant
+  // Sync uniquement les jours modifiés (pas tout l'historique)
+  Object.keys(d).forEach(date=>{
+    if(JSON.stringify(d[date])!==JSON.stringify(prev[date])){
+      _syncDay(date,d[date]);
+    }
+  });
 }
 function _getSnapshots(){
   return Object.keys(localStorage).filter(k=>k.startsWith(SNAP_PREFIX)).sort().reverse();
