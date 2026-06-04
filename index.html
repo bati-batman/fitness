@@ -910,9 +910,12 @@ async function forceSyncAll(){
 }
 
 async function _pushAllToCloud(){
+  // Ne pousse jamais si les données fitness sont vides — évite d'écraser le cloud
+  const d=getData();
+  if(!Object.keys(d).length){console.warn('[Cloud] push aborted — données vides');return;}
   try{
     const rows=[
-      {key:DB_KEY,value:getData(),updated_at:new Date().toISOString()},
+      {key:DB_KEY,value:d,updated_at:new Date().toISOString()},
       {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
       {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
     ];
@@ -968,7 +971,7 @@ function _getSnapshots(){
   return Object.keys(localStorage).filter(k=>k.startsWith(SNAP_PREFIX)).sort().reverse();
 }
 function _cleanOldSnapshots(){
-  const cutoff=Date.now()-14*86400000;
+  const cutoff=Date.now()-30*86400000; // 30 jours de rétention
   _getSnapshots().forEach(k=>{
     const ds=k.replace(SNAP_PREFIX,'');
     if(new Date(ds+'T12:00:00').getTime()<cutoff)localStorage.removeItem(k);
@@ -2350,17 +2353,26 @@ function populateOrmExercises(){
 // ===================== EXPORT / IMPORT =====================
 let _lastSaveTime=null;
 function _markUnsaved(){
-  document.getElementById('saveDot').className='save-dot unsaved';
-  document.getElementById('saveStatus').textContent='Modifications non sauvegardées';
-  document.getElementById('unsaved-reminder').style.display='flex';
+  // Éléments optionnels — peuvent avoir été supprimés du DOM
+  const dot=document.getElementById('saveDot');
+  const status=document.getElementById('saveStatus');
+  const reminder=document.getElementById('unsaved-reminder');
+  if(dot) dot.className='save-dot unsaved';
+  if(status) status.textContent='Modifications non sauvegardées';
+  if(reminder) reminder.style.display='flex';
 }
 function _markSaved(){
   const now=new Date();
-  document.getElementById('saveDot').className='save-dot saved';
-  document.getElementById('saveStatus').textContent='Sauvegardé à '+now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  const dot=document.getElementById('saveDot');
+  const status=document.getElementById('saveStatus');
+  if(dot) dot.className='save-dot saved';
+  if(status) status.textContent='Sauvegardé à '+now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
   _lastSaveTime=now;
 }
-function hideUnsavedReminder(){document.getElementById('unsaved-reminder').style.display='none';}
+function hideUnsavedReminder(){
+  const el=document.getElementById('unsaved-reminder');
+  if(el) el.style.display='none';
+}
 
 function exportData(){
   const payload={version:4,exportedAt:new Date().toISOString(),data:getData(),programme:getProg(),bmrProfile:getBmrProfile()};
@@ -2391,7 +2403,8 @@ function handleImport(event){
       if(Object.keys(bmr).length)localStorage.setItem(BMR_KEY,JSON.stringify(bmr));
       _pushAllToCloud();
       showToast('✅ Données importées !');
-      document.getElementById('import-banner').style.display='none';
+      const banner=document.getElementById('import-banner');
+      if(banner) banner.style.display='none';
       _markSaved();
       renderAll();
     }catch(err){showToast('❌ Fichier invalide');}
@@ -2459,22 +2472,23 @@ function renderAll(){
   // Restore edit backup
   try{_editBackup=JSON.parse(localStorage.getItem(EDIT_BACKUP_KEY));}catch(e){}
 
-  // Check if localStorage is empty → show import banner
-  const hasData=getData()&&Object.keys(getData()).length>0;
-  if(!hasData)document.getElementById('import-banner').style.display='flex';
-
   _cleanOldSnapshots();
 
-  // Sync cloud au démarrage (REST API directe, pas de CDN)
-  _loadFromCloud().then(()=>{renderAll();populateOrmExercises();});
-
-  // Populate 1RM exercise list
-  populateOrmExercises();
-
+  // Rendu initial immédiat avec données locales
   renderWeekBand();
   updateProgramBadge();
   renderAll();
+  populateOrmExercises();
   _markSaved();
+
+  // Sync cloud — met à jour si données plus récentes sur le serveur
+  _loadFromCloud().then(()=>{
+    renderAll();
+    // Bannière import seulement si TOUJOURS vide après le cloud
+    const hasData=Object.keys(getData()).length>0;
+    const banner=document.getElementById('import-banner');
+    if(!hasData&&banner) banner.style.display='flex';
+  });
 
   // Keyboard shortcut Ctrl+S
   document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();exportData();}});
