@@ -370,6 +370,15 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 /* ===== VOL 4 SEMAINES ===== */
 .vol4w-wrap { position:relative; height:260px; margin-top:12px; }
 
+/* ===== AJOUT D'EXERCICE LIBRE ===== */
+.add-ex-panel { background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:14px; margin:10px 0 14px; }
+.add-ex-panel select { background:var(--bg); border:1px solid rgba(108,99,255,.3); color:var(--text); border-radius:8px; padding:8px 10px; font-size:.88rem; width:100%; margin-bottom:10px; }
+.extra-ex-block { border:1px dashed var(--border); border-radius:12px; padding:14px; margin-bottom:12px; position:relative; }
+.extra-ex-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.extra-ex-label { font-size:.68rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; background:rgba(108,99,255,.1); border:1px solid rgba(108,99,255,.25); padding:2px 8px; border-radius:4px; }
+.btn-add-ex { display:flex; align-items:center; gap:6px; background:rgba(108,99,255,.1); border:1px dashed rgba(108,99,255,.4); color:var(--accent); border-radius:10px; padding:10px 16px; font-size:.86rem; font-weight:700; cursor:pointer; width:100%; justify-content:center; margin:10px 0; transition:all .15s; }
+.btn-add-ex:hover { background:rgba(108,99,255,.2); }
+
 /* ===== BISET INTERLEAVED ===== */
 .biset-set-block { background:var(--card3); border-radius:9px; padding:10px 12px; margin-bottom:8px; }
 .biset-set-title { font-size:.7rem; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; }
@@ -1147,7 +1156,7 @@ function shiftDate(delta){const inp=document.getElementById('globalDate');const 
 function goToday(){document.getElementById('globalDate').value=new Date().toISOString().split('T')[0];_weekOffset=0;onDateChange();}
 function goYesterday(){const d=new Date();d.setDate(d.getDate()-1);document.getElementById('globalDate').value=d.toISOString().split('T')[0];_weekOffset=_dateToWeekOffset(document.getElementById('globalDate').value);onDateChange();}
 function goDate(dateStr){document.getElementById('globalDate').value=dateStr;_weekOffset=_dateToWeekOffset(dateStr);onDateChange();}
-function onDateChange(){renderWeekBand();updateProgramBadge();renderAll();}
+function onDateChange(){_extraExercises=[];renderWeekBand();updateProgramBadge();renderAll();}
 function updateDateDisplay(){}
 function updateProgramBadge(){
   // Badge supprimé — plus affiché
@@ -1486,6 +1495,7 @@ function renderExerciseProgress(){
 
 // ===================== PROGRAMME PREVIEW — SAISIE PAR SÉRIE =====================
 let _editPrefill=null,_editBackup=null;
+let _extraExercises=[],_extraIdCounter=0;
 
 // ── Trouve la dernière séance AVANT beforeDate qui contient exName ──
 function getLastPerf(exName, beforeDate){
@@ -1590,6 +1600,38 @@ function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
 }
 
 // Ajoute/retire une série dans un bloc biset/triset groupé
+// ===================== EXERCICES LIBRES (ajout dans séance du jour) =====================
+function toggleAddExPanel(){
+  const p=document.getElementById('add-ex-panel');
+  if(!p)return;
+  p.style.display=p.style.display==='none'?'block':'none';
+}
+function confirmAddExercise(){
+  const sel=document.getElementById('add-ex-selector');
+  if(!sel||!sel.value)return;
+  const id=++_extraIdCounter;
+  _extraExercises.push({id,name:sel.value,sets:3,reps:10});
+  sel.value='';
+  document.getElementById('add-ex-panel').style.display='none';
+  _renderExtraExercises();
+}
+function removeExtraExercise(id){
+  _extraExercises=_extraExercises.filter(e=>e.id!==id);
+  _renderExtraExercises();
+}
+function _renderExtraExercises(){
+  const c=document.getElementById('extra-exercises-container');
+  if(!c)return;
+  c.innerHTML=_extraExercises.map(ex=>`
+    <div class="extra-ex-block" data-extra-id="${ex.id}">
+      <div class="extra-ex-header">
+        <span class="extra-ex-label">Exercice ajouté</span>
+        <button onclick="removeExtraExercise(${ex.id})" class="btn btn-danger btn-sm">✕ Retirer</button>
+      </div>
+      ${exBlockHTML(ex,'0','extra_'+ex.id,'','',null)}
+    </div>`).join('');
+}
+
 function changeGroupSets(bi,delta,ctrlId){
   const inp=document.getElementById(ctrlId);
   const n=Math.max(1,Math.min(20,(parseInt(inp.value)||1)+delta));
@@ -1819,14 +1861,38 @@ function renderProgPreview(){
     (block.exercises||[]).forEach((ex,ei)=>{ _editPrefill.push({...ex,_bi:bi,_key:String(ei)}); });
   });
 
+  // Sélecteur d'exercice libre — toutes les muscles/exercices disponibles
+  const exSelectorOpts=Object.entries(MUSCLE_DB).map(([m,md])=>
+    `<optgroup label="${md.icon} ${m}">${md.exercises.map(e=>`<option value="${e}">${e}</option>`).join('')}</optgroup>`
+  ).join('');
+
   box.innerHTML=`<div class="prog-preview" style="background:rgba(108,99,255,.06);border-color:rgba(108,99,255,.2)">
     <h3>📋 ${dayProg.label||'Programme du jour'}</h3>
     ${blocksHTML}
+    <!-- Exercices libres ajoutés -->
+    <div id="extra-exercises-container"></div>
+    <!-- Bouton + panel ajout exercice libre -->
+    <button class="btn-add-ex" onclick="toggleAddExPanel()">＋ Ajouter un exercice</button>
+    <div id="add-ex-panel" style="display:none">
+      <div class="add-ex-panel">
+        <p style="font-size:.8rem;color:var(--muted);margin-bottom:8px">Choisis un exercice à ajouter à ta séance :</p>
+        <select id="add-ex-selector">
+          <option value="">— Sélectionner un exercice —</option>
+          ${exSelectorOpts}
+        </select>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="confirmAddExercise()">Ajouter</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleAddExPanel()">Annuler</button>
+        </div>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
       <button class="btn btn-success" onclick="saveFromPreview()">💾 Enregistrer la séance</button>
       ${alreadyDone?`<button class="btn btn-outline btn-sm" onclick="clearTodaySession()" style="border-color:#e74c3c;color:#e74c3c">✕ Effacer séance</button>`:''}
     </div>
   </div>`;
+  // Re-render les exercices extra si on revient sur la même date
+  if(_extraExercises.length) _renderExtraExercises();
 }
 
 function saveFromPreview(){
@@ -1867,8 +1933,26 @@ function saveFromPreview(){
     });
   });
 
+  // Collecte les exercices libres ajoutés manuellement
+  _extraExercises.forEach(ex=>{
+    const bi='extra_'+ex.id;
+    const rows=document.querySelectorAll(`[data-block="${bi}"][data-ex="0"][data-field="reps"]`);
+    if(!rows.length)return;
+    const setData=[];
+    rows.forEach(inp=>{
+      const sn=inp.dataset.set;
+      const reps=parseInt(inp.value)||0;
+      const wInp=document.querySelector(`[data-block="${bi}"][data-ex="0"][data-set="${sn}"][data-field="weight"]`);
+      const mInp=document.querySelector(`[data-block="${bi}"][data-ex="0"][data-set="${sn}"][data-field="myoreps"]`);
+      if(reps>0||parseFloat(wInp?.value)>0) setData.push({reps,weight:parseFloat(wInp?.value)||0,myoreps:mInp?.value||''});
+    });
+    if(!setData.length)return;
+    newExs.push({id:id++,name:ex.name,sets:setData.length,reps:setData[0].reps,weight:setData[0].weight,myoreps:setData[0].myoreps,setData});
+  });
+
   if(!newExs.length){showToast('⚠️ Aucune donnée à enregistrer');return;}
   data[date].exercises=newExs;
+  _extraExercises=[];
   const setsBackup={};
   newExs.forEach(e=>{ if(e.setData) setsBackup[e.name]=e.setData; });
   _editBackup={date,sets:setsBackup};
