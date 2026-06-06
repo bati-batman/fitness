@@ -412,6 +412,16 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 .forme-score-badge { display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border-radius:12px; font-weight:800; font-size:1.05rem; }
 .forme-score-badge .fs-sub { font-size:.78rem; font-weight:600; opacity:.9; }
 
+/* ===== PÉRIODISATION ===== */
+.reco-banner { display:flex; align-items:flex-start; gap:7px; border-radius:8px; padding:7px 11px; margin-bottom:8px; font-size:.78rem; font-weight:600; line-height:1.35; }
+.day-readiness { border-radius:10px; padding:11px 14px; margin-bottom:14px; font-size:.86rem; font-weight:600; line-height:1.4; }
+.profile-grid { display:flex; flex-direction:column; gap:14px; }
+.profile-q { font-size:.86rem; font-weight:700; color:var(--text); margin-bottom:7px; }
+.profile-opts { display:flex; gap:8px; flex-wrap:wrap; }
+.profile-chip { background:var(--bg); border:1px solid rgba(136,136,153,.3); color:var(--muted); border-radius:9px; padding:9px 14px; font-size:.82rem; font-weight:600; cursor:pointer; transition:all .15s; user-select:none; }
+.profile-chip:hover { border-color:var(--accent); }
+.profile-chip.on { background:rgba(108,99,255,.18); border-color:var(--accent); color:var(--accent); }
+
 /* ===== MENU BURGER MOBILE ===== */
 .burger-btn { display:none; background:transparent; border:none; color:var(--text); cursor:pointer; padding:8px; border-radius:8px; flex-direction:column; gap:5px; align-items:center; justify-content:center; }
 .burger-btn span { display:block; width:22px; height:2px; background:var(--text); border-radius:2px; transition:all .2s; }
@@ -752,12 +762,39 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
   <!-- MON PROGRAMME -->
   <div id="sub-programme" class="subsection">
+
+    <!-- PROFIL D'ENTRAÎNEMENT (périodisation) -->
+    <div class="card">
+      <h2>🎯 Profil d'entraînement</h2>
+      <p style="font-size:.8rem;color:var(--muted);margin:-4px 0 14px">Sert au moteur de conseils (quand monter les poids, faire du rest-pause, ou décharger).</p>
+      <div class="profile-grid">
+        <div>
+          <div class="profile-q">Ton objectif principal</div>
+          <div class="profile-opts" id="profile-objectif">
+            <span class="profile-chip" data-v="masse" onclick="setProfile('objectif','masse')">💪 Prise de masse</span>
+            <span class="profile-chip" data-v="force" onclick="setProfile('objectif','force')">🏋️ Prise de force</span>
+            <span class="profile-chip" data-v="gras" onclick="setProfile('objectif','gras')">🔥 Perte de gras</span>
+          </div>
+        </div>
+        <div>
+          <div class="profile-q">Années d'entraînement sérieux</div>
+          <div class="profile-opts" id="profile-experience">
+            <span class="profile-chip" data-v="debutant" onclick="setProfile('experience','debutant')">Débutant (&lt;1 an)</span>
+            <span class="profile-chip" data-v="intermediaire" onclick="setProfile('experience','intermediaire')">Intermédiaire (1-3 ans)</span>
+            <span class="profile-chip" data-v="avance" onclick="setProfile('experience','avance')">Avancé (3 ans+)</span>
+          </div>
+        </div>
+      </div>
+      <div id="profile-summary" style="margin-top:14px"></div>
+    </div>
+
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
         <h2 style="margin-bottom:0">📋 Programme hebdomadaire</h2>
         <span id="prog-save-indicator" style="font-size:.78rem;color:var(--accent3);font-weight:700;opacity:0;transition:opacity .4s">✅ Sauvegardé</span>
       </div>
       <p style="color:var(--muted);font-size:.84rem;margin-bottom:16px">Définis tes exercices par jour. Le programme se sauvegarde automatiquement.</p>
+      <div id="program-switcher" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px"></div>
       <div id="weeklySchedule" class="weekly-schedule"></div>
       <div id="progDayEditor"><div class="empty"><div class="icon">📅</div>Sélectionne un jour pour l'éditer</div></div>
     </div>
@@ -927,6 +964,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 // ===================== CONSTANTS =====================
 let CAL_GOAL=2500, STEPS_GOAL=15000;
 const DB_KEY='fitness_v4', PROG_KEY='fitness_programme_v2', BMR_KEY='fitness_bmr';
+const PROGRAMS_KEY='fitness_programs_v1', PROFILE_KEY='fitness_profile_v1';
 const STEPS_GOAL_KEY='fitness_steps_goal';
 const EDIT_BACKUP_KEY='fitness_edit_backup';   // survit aux rechargements
 const SNAP_PREFIX='fitness_snap_';             // snapshots quotidiens automatiques
@@ -1028,8 +1066,8 @@ async function _loadFromCloud(){
           }
         });
 
-      } else if(row.key===PROG_KEY||row.key===BMR_KEY){
-        // Programme & BMR : cloud gagne seulement si local est absent
+      } else if(row.key===PROG_KEY||row.key===BMR_KEY||row.key===PROGRAMS_KEY||row.key===PROFILE_KEY){
+        // Programme(s), BMR & profil : cloud gagne seulement si local est absent
         const cloudVal=JSON.stringify(row.value);
         if(!localStorage.getItem(row.key)){
           localStorage.setItem(row.key,cloudVal);changed=true;
@@ -1058,7 +1096,9 @@ async function forceSyncAll(){
         key:_SB_DAY_PREFIX+date,value:day,updated_at:new Date().toISOString()
       })),
       {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
+      {key:PROGRAMS_KEY,value:getProgramsContainer(),updated_at:new Date().toISOString()},
       {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
+      {key:PROFILE_KEY,value:getProfile(),updated_at:new Date().toISOString()},
     ];
     // Envoie par lots de 50 pour éviter les limites HTTP
     for(let i=0;i<rows.length;i+=50){
@@ -1149,16 +1189,292 @@ function _cleanOldSnapshots(){
     if(new Date(ds+'T12:00:00').getTime()<cutoff)localStorage.removeItem(k);
   });
 }
-function getProg(){ try{return JSON.parse(localStorage.getItem(PROG_KEY))||{};}catch(e){return{};} }
+// ===================== PROGRAMMES (multi) =====================
+// Conteneur : {activeId, programs:{id:{name, days:{0..6}}}}
+// PROG_KEY reste le miroir du programme ACTIF (rétro-compat + sync cloud existante).
+function _newProgId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
+
+function getProgramsContainer(){
+  let c=null;
+  try{ c=JSON.parse(localStorage.getItem(PROGRAMS_KEY)); }catch(e){}
+  if(c&&c.programs&&Object.keys(c.programs).length){
+    if(!c.programs[c.activeId]) c.activeId=Object.keys(c.programs)[0];
+    return c;
+  }
+  // Migration : récupère l'ancien programme unique (local ou cloud déjà restauré dans PROG_KEY)
+  let oldDays={};
+  try{ oldDays=JSON.parse(localStorage.getItem(PROG_KEY))||{}; }catch(e){}
+  const id=_newProgId();
+  c={activeId:id,programs:{[id]:{name:'Programme 1',days:oldDays}}};
+  localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c));
+  return c;
+}
+function _saveProgramsContainer(c,{sync=true}={}){
+  localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c));
+  const active=c.programs[c.activeId];
+  const days=active?active.days||{}:{};
+  // Miroir vers PROG_KEY (utilisé par l'ancienne sync cloud + filet de sécurité)
+  localStorage.setItem(PROG_KEY,JSON.stringify(days));
+  if(sync){ _syncToCloud(PROGRAMS_KEY,c); _syncToCloud(PROG_KEY,days); }
+}
+
+// getProg/saveProg : accès transparent aux jours du programme ACTIF
+function getProg(){ const c=getProgramsContainer(); return c.programs[c.activeId].days||{}; }
 function saveProg(p){
-  localStorage.setItem(PROG_KEY,JSON.stringify(p));
-  _syncToCloud(PROG_KEY,p);
+  const c=getProgramsContainer();
+  c.programs[c.activeId].days=p;
+  _saveProgramsContainer(c);
   // Indicateur visuel discret
   const ind=document.getElementById('prog-save-indicator');
   if(ind){ind.style.opacity='1';clearTimeout(ind._t);ind._t=setTimeout(()=>ind.style.opacity='0',2000);}
 }
+
+// ── Gestion des programmes ──
+function getActiveProgramName(){ const c=getProgramsContainer(); return (c.programs[c.activeId]||{}).name||'Programme'; }
+function switchProgram(id){
+  const c=getProgramsContainer();
+  if(!c.programs[id])return;
+  c.activeId=id;
+  _saveProgramsContainer(c);
+  _editingDay=null;
+  renderProgramSwitcher();
+  renderProgrammeEditor();
+  renderAll();
+  showToast('📋 Programme : '+c.programs[id].name);
+}
+function createProgram(){
+  const name=prompt('Nom du nouveau programme :','Nouveau programme');
+  if(!name||!name.trim())return;
+  const c=getProgramsContainer();
+  const id=_newProgId();
+  c.programs[id]={name:name.trim(),days:{}};
+  c.activeId=id;
+  _saveProgramsContainer(c);
+  _editingDay=null;
+  renderProgramSwitcher();
+  renderProgrammeEditor();
+  showToast('✅ Programme créé : '+name.trim());
+}
+function duplicateProgram(){
+  const c=getProgramsContainer();
+  const cur=c.programs[c.activeId];
+  if(!cur)return;
+  const name=prompt('Nom de la copie :',cur.name+' (copie)');
+  if(!name||!name.trim())return;
+  const id=_newProgId();
+  c.programs[id]={name:name.trim(),days:JSON.parse(JSON.stringify(cur.days||{}))};
+  c.activeId=id;
+  _saveProgramsContainer(c);
+  renderProgramSwitcher();
+  renderProgrammeEditor();
+  showToast('✅ Copié : '+name.trim());
+}
+function renameProgram(){
+  const c=getProgramsContainer();
+  const cur=c.programs[c.activeId];
+  if(!cur)return;
+  const name=prompt('Renommer le programme :',cur.name);
+  if(!name||!name.trim())return;
+  cur.name=name.trim();
+  _saveProgramsContainer(c);
+  renderProgramSwitcher();
+  showToast('✅ Renommé');
+}
+function deleteProgram(){
+  const c=getProgramsContainer();
+  if(Object.keys(c.programs).length<=1){ showToast('⚠️ Garde au moins un programme'); return; }
+  const cur=c.programs[c.activeId];
+  if(!confirm('Supprimer le programme "'+cur.name+'" ?'))return;
+  delete c.programs[c.activeId];
+  c.activeId=Object.keys(c.programs)[0];
+  _saveProgramsContainer(c);
+  _editingDay=null;
+  renderProgramSwitcher();
+  renderProgrammeEditor();
+  renderAll();
+  showToast('🗑️ Programme supprimé');
+}
+function renderProgramSwitcher(){
+  const el=document.getElementById('program-switcher');
+  if(!el)return;
+  const c=getProgramsContainer();
+  const opts=Object.entries(c.programs).map(([id,p])=>
+    `<option value="${id}" ${id===c.activeId?'selected':''}>${(p.name||'Programme').replace(/"/g,'&quot;')}</option>`
+  ).join('');
+  el.innerHTML=`
+    <select id="program-select" onchange="switchProgram(this.value)" style="flex:1;min-width:160px;font-weight:700">${opts}</select>
+    <button class="btn btn-outline btn-sm" onclick="createProgram()" title="Nouveau">＋ Nouveau</button>
+    <button class="btn btn-outline btn-sm" onclick="duplicateProgram()" title="Dupliquer">⧉ Dupliquer</button>
+    <button class="btn btn-outline btn-sm" onclick="renameProgram()" title="Renommer">✎ Renommer</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteProgram()" title="Supprimer">🗑️</button>
+  `;
+}
 function getBmrProfile(){ try{return JSON.parse(localStorage.getItem(BMR_KEY))||{};}catch(e){return{};} }
 function saveBmrProfile(p){ localStorage.setItem(BMR_KEY,JSON.stringify(p)); _syncToCloud(BMR_KEY,p); }
+
+// ===================== PROFIL D'ENTRAÎNEMENT (périodisation) =====================
+// {objectif:'masse'|'force'|'gras', experience:'debutant'|'intermediaire'|'avance'}
+function getProfile(){ try{return JSON.parse(localStorage.getItem(PROFILE_KEY))||{};}catch(e){return{};} }
+function saveProfile(p){ localStorage.setItem(PROFILE_KEY,JSON.stringify(p)); _syncToCloud(PROFILE_KEY,p); }
+
+// Paramètres dérivés du profil
+const OBJ_LABELS={masse:'Prise de masse',force:'Prise de force',gras:'Perte de gras'};
+const EXP_LABELS={debutant:'Débutant (<1 an)',intermediaire:'Intermédiaire (1-3 ans)',avance:'Avancé (3 ans+)'};
+
+function _isCompound(name){
+  const n=(name||'').toLowerCase();
+  return /squat|soulev|terre|développ|developp|couch|presse|tract|rowing|row|dips|fente|épaul|epaul|militaire|hip thrust|tirage/.test(n);
+}
+// Incrément de charge conseillé selon profil + type d'exercice
+function _loadIncrement(name){
+  const obj=getProfile().objectif||'masse';
+  const comp=_isCompound(name);
+  if(obj==='force') return comp?2.5:1.25;
+  if(obj==='gras')  return comp?2.5:1.25; // on cherche surtout à maintenir
+  return comp?2.5:1.25; // masse
+}
+// Fourchette de reps cible selon profil
+function targetRepRange(){
+  const obj=getProfile().objectif||'masse';
+  if(obj==='force') return [3,6];
+  if(obj==='gras')  return [8,15];
+  return [6,12]; // masse
+}
+
+// Récupère les N dernières perfs d'un exercice (plus récent en premier)
+function _lastPerfs(exName,beforeDate,n){
+  const data=getData();
+  const dates=Object.keys(data).filter(k=>k<=beforeDate).sort().reverse();
+  const out=[];
+  for(const k of dates){
+    const ex=(data[k].exercises||[]).find(e=>e.name===exName);
+    if(ex){
+      const sets=ex.setData&&ex.setData.length?ex.setData:
+        (ex.sets?Array.from({length:ex.sets},()=>({reps:ex.reps||0,weight:ex.weight||0,myoreps:''})):null);
+      if(sets&&sets.length) out.push({date:k,sets});
+    }
+    if(out.length>=n) break;
+  }
+  return out;
+}
+const _maxW=sets=>Math.max(0,...sets.map(s=>+s.weight||0));
+const _minReps=sets=>Math.min(...sets.map(s=>+s.reps||0));
+const _volume=sets=>sets.reduce((a,s)=>a+((+s.weight||0)*((+s.reps||0)+myorepsTotal(s.myoreps||''))),0);
+
+// Scores de forme récents (jours avec score), plus récent en premier
+function _recentFormeScores(beforeDate,n){
+  const data=getData();
+  const dates=Object.keys(data).filter(k=>k<=beforeDate).sort().reverse();
+  const out=[];
+  for(const k of dates){
+    const f=data[k].forme;
+    if(f&&typeof f.score==='number'){ out.push(f.score); if(out.length>=n)break; }
+  }
+  return out;
+}
+
+// Recommandation globale du jour (lecture: forme + tendance)
+function dayReadiness(date){
+  const prof=getProfile();
+  if(!prof.objectif) return null;
+  const today=(getData()[date]||{}).forme;
+  const recent=_recentFormeScores(date,3);
+  // 3 séances de forme basse d'affilée → décharge
+  if(recent.length>=3 && recent.slice(0,3).every(s=>s<4)){
+    return {level:'deload',text:'🛑 3 séances en forme basse — une <strong>semaine de décharge</strong> est conseillée (-40% volume).',col:'#e74c3c',bg:'rgba(231,76,60,.12)'};
+  }
+  if(today&&typeof today.score==='number'){
+    if(today.score>=8) return {level:'go',text:'💪 Forme au top — <strong>jour idéal pour pousser</strong> (vise le haut de la fourchette, tente un PR).',col:'#43e97b',bg:'rgba(67,233,123,.12)'};
+    if(today.score<4)  return {level:'low',text:'🛟 Forme basse — <strong>séance allégée</strong> : -20% sur les charges, reste loin de l\'échec.',col:'#f7971e',bg:'rgba(247,151,30,.12)'};
+    return {level:'normal',text:'👍 Forme correcte — séance normale, progresse là où tu peux.',col:'#6c63ff',bg:'rgba(108,99,255,.1)'};
+  }
+  return {level:'noform',text:'ℹ️ Renseigne ta <strong>Forme du jour</strong> (onglet Poids) pour des conseils adaptés.',col:'var(--muted)',bg:'rgba(136,136,153,.1)'};
+}
+
+// Recommandation par exercice
+function recommendExercise(exName,date){
+  const prof=getProfile();
+  if(!prof.objectif) return null;
+  const [loRep,hiRep]=targetRepRange();
+  const perfs=_lastPerfs(exName,_dayBefore(date),3); // perfs AVANT aujourd'hui
+  const inc=_loadIncrement(exName);
+  const todayForme=(getData()[date]||{}).forme;
+  const lowToday=todayForme&&typeof todayForme.score==='number'&&todayForme.score<4;
+
+  if(!perfs.length){
+    return {text:`🎯 Première fois : choisis un poids où tu finis à 1-2 reps de l'échec (${loRep}-${hiRep} reps).`,col:'#6c63ff',bg:'rgba(108,99,255,.1)'};
+  }
+  const last=perfs[0];
+  const lastMax=_maxW(last.sets);
+  const lastMinReps=_minReps(last.sets);
+
+  // Forme basse aujourd'hui → prioritaire
+  if(lowToday){
+    return {text:`🛟 Forme basse : reste sur ~${Math.round(lastMax*0.8*2)/2}kg (-20%), technique propre, pas d'échec.`,col:'#f7971e',bg:'rgba(247,151,30,.12)'};
+  }
+
+  // Chute de perf > 10% sur les 3 dernières (volume max)
+  if(perfs.length>=3){
+    const vols=perfs.map(p=>_volume(p.sets));
+    const peak=Math.max(...vols);
+    if(peak>0 && vols[0] < peak*0.9 && vols[1] < peak*0.9){
+      return {text:`📉 Perf en baisse vs ton pic — signe de fatigue. Maintiens ${lastMax}kg ou pense à une décharge.`,col:'#e74c3c',bg:'rgba(231,76,60,.12)'};
+    }
+  }
+
+  // A atteint le haut de la fourchette sur toutes les séries → monter le poids
+  if(lastMinReps>=hiRep){
+    return {text:`⬆️ Tu as tenu ${hiRep}+ reps partout → <strong>monte à ${Math.round((lastMax+inc)*2)/2}kg</strong> (+${inc}kg).`,col:'#43e97b',bg:'rgba(67,233,123,.12)'};
+  }
+
+  // Stagnation : 2 séances même poids sans gagner de reps
+  if(perfs.length>=2){
+    const prev=perfs[1];
+    if(_maxW(prev.sets)===lastMax && _minReps(prev.sets)>=lastMinReps){
+      const obj=prof.objectif;
+      if(obj==='force'){
+        return {text:`🔁 Stagnation à ${lastMax}kg → micro-décharge : -10% pendant 1 séance puis relance.`,col:'#f7971e',bg:'rgba(247,151,30,.12)'};
+      }
+      return {text:`🔁 Stagnation à ${lastMax}kg → tente le <strong>rest-pause</strong> : série à l'échec, 15s de pause, continue jusqu'à l'échec.`,col:'#f7971e',bg:'rgba(247,151,30,.12)'};
+    }
+  }
+
+  // Sinon : progresse en reps
+  return {text:`➕ Garde ${lastMax}kg et gagne des reps (vise ${hiRep}/série avant de monter le poids).`,col:'#6c63ff',bg:'rgba(108,99,255,.1)'};
+}
+function _dayBefore(date){ const d=new Date(date+'T12:00:00'); d.setDate(d.getDate()-1); return d.toISOString().split('T')[0]; }
+
+function _recoBanner(exName){
+  const r=recommendExercise(exName,getDateKey());
+  if(!r)return'';
+  return `<div class="reco-banner" style="color:${r.col};background:${r.bg}">🧠 ${r.text}</div>`;
+}
+
+function setProfile(field,val){
+  const p=getProfile();
+  p[field]=val;
+  saveProfile(p);
+  renderProfile();
+}
+function renderProfile(){
+  const p=getProfile();
+  [['objectif','profile-objectif'],['experience','profile-experience']].forEach(([field,id])=>{
+    const grp=document.getElementById(id);
+    if(!grp)return;
+    grp.querySelectorAll('.profile-chip').forEach(c=>{
+      c.classList.toggle('on',c.dataset.v===p[field]);
+    });
+  });
+  const sum=document.getElementById('profile-summary');
+  if(sum){
+    if(p.objectif&&p.experience){
+      const [lo,hi]=targetRepRange();
+      sum.innerHTML=`<div class="day-readiness" style="background:rgba(67,233,123,.1);color:#43e97b">✅ Moteur actif — <strong>${OBJ_LABELS[p.objectif]}</strong> · ${EXP_LABELS[p.experience]} · fourchette cible <strong>${lo}-${hi} reps</strong>. Les conseils apparaissent dans ta séance du jour.</div>`;
+    } else {
+      sum.innerHTML=`<div class="day-readiness" style="background:rgba(247,151,30,.1);color:#f7971e">⚙️ Choisis ton objectif et ton expérience pour activer les conseils de périodisation.</div>`;
+    }
+  }
+}
 
 function getOrCreate(data,date){
   if(!data[date]) data[date]={kcal_total:null,steps:null,poids:null,exercises:[]};
@@ -1648,6 +1964,7 @@ function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
   }).join('');
 
   const banner=lastPerf?`<div class="last-perf-banner">📅 Dernière séance : <strong>il y a ${lastPerf.daysAgo}j</strong> (${lastPerf.date}) — valeurs pré-remplies · modifie pour voir le delta</div>`:'';
+  const reco=_recoBanner(ex.name);
 
   const setsCountId=`sets-count-${bi}-${key}`;
   return `
@@ -1657,6 +1974,7 @@ function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
       <span class="muscle-tag" style="background:${getMuscleColor(ex.name)}20;color:${getMuscleColor(ex.name)};align-self:flex-start">${getMuscle(ex.name)}</span>
     </div>
     ${banner}
+    ${reco}
     <div class="sets-ctrl">
       <span class="sets-ctrl-lbl">Séries :</span>
       <button class="sets-btn" onclick="changeSets('${bi}','${key}',-1,'${setsCountId}')">−</button>
@@ -1905,7 +2223,8 @@ function renderProgPreview(){
       }).join('');
       const banners=exs.map((ex,ei)=>{
         const lp=exLastPerfs[ei];
-        return lp?`<div class="last-perf-banner" style="margin-bottom:4px">📅 <strong>${ex.name}</strong> — il y a ${lp.daysAgo}j</div>`:'';
+        const lpb=lp?`<div class="last-perf-banner" style="margin-bottom:4px">📅 <strong>${ex.name}</strong> — il y a ${lp.daysAgo}j</div>`:'';
+        return lpb+_recoBanner(ex.name);
       }).filter(Boolean).join('');
       return `<div class="${groupCls}">
         <div class="group-label ${labelCls}">${labelTxt} — ${exs.map(e=>e.name).join(' + ')}</div>
@@ -1934,8 +2253,11 @@ function renderProgPreview(){
     `<optgroup label="${md.icon} ${m}">${md.exercises.map(e=>`<option value="${e}">${e}</option>`).join('')}</optgroup>`
   ).join('');
 
+  const _readiness=dayReadiness(date);
+  const readinessHTML=_readiness?`<div class="day-readiness" style="background:${_readiness.bg};color:${_readiness.col}">${_readiness.text}</div>`:'';
   box.innerHTML=`<div class="prog-preview" style="background:rgba(108,99,255,.06);border-color:rgba(108,99,255,.2)">
     <h3>📋 ${dayProg.label||'Programme du jour'}</h3>
+    ${readinessHTML}
     ${blocksHTML}
     <!-- Exercices libres ajoutés -->
     <div id="extra-exercises-container"></div>
@@ -2497,6 +2819,8 @@ function renderLastTrained(){
 // ===================== PROGRAMME EDITOR =====================
 let _editingDay=null;
 function renderProgrammeEditor(){
+  renderProfile();
+  renderProgramSwitcher();
   const prog=getProg();
   const today=new Date().getDay();
   const schedEl=document.getElementById('weeklySchedule');
@@ -2761,7 +3085,7 @@ function hideUnsavedReminder(){
 }
 
 function exportData(){
-  const payload={version:4,exportedAt:new Date().toISOString(),data:getData(),programme:getProg(),bmrProfile:getBmrProfile()};
+  const payload={version:4,exportedAt:new Date().toISOString(),data:getData(),programme:getProg(),programs:getProgramsContainer(),profile:getProfile(),bmrProfile:getBmrProfile()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='fitness-data.json';a.click();
   _markSaved();hideUnsavedReminder();showToast('✅ Données exportées');
@@ -2785,7 +3109,9 @@ function handleImport(event){
       else if(json.data){d=json.data;}
       else{d=json;}
       localStorage.setItem(DB_KEY,JSON.stringify(d));
-      if(Object.keys(prog).length)localStorage.setItem(PROG_KEY,JSON.stringify(prog));
+      if(json.programs){ localStorage.setItem(PROGRAMS_KEY,JSON.stringify(json.programs)); }
+      else if(Object.keys(prog).length){ localStorage.setItem(PROG_KEY,JSON.stringify(prog)); localStorage.removeItem(PROGRAMS_KEY); }
+      if(json.profile){ localStorage.setItem(PROFILE_KEY,JSON.stringify(json.profile)); }
       if(Object.keys(bmr).length)localStorage.setItem(BMR_KEY,JSON.stringify(bmr));
       _pushAllToCloud();
       showToast('✅ Données importées !');
