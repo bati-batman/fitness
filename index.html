@@ -398,6 +398,20 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 .ref-delta.better  { background:rgba(67,233,123,.15); color:#43e97b; }
 .ref-delta.worse   { background:rgba(231,76,60,.15); color:#e74c3c; }
 
+/* ===== FORME DU JOUR (questionnaire facultatif) ===== */
+.forme-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(136,136,153,.12); flex-wrap:wrap; }
+.forme-row:last-of-type { border-bottom:none; }
+.forme-q { font-size:.86rem; font-weight:600; color:var(--text); }
+.forme-opts { display:flex; gap:6px; flex-wrap:wrap; }
+.forme-chip { background:var(--bg); border:1px solid rgba(136,136,153,.3); color:var(--muted); border-radius:8px; padding:6px 12px; font-size:.8rem; font-weight:600; cursor:pointer; transition:all .15s; user-select:none; }
+.forme-chip:hover { border-color:var(--accent); }
+.forme-chip.on-good { background:rgba(67,233,123,.18); border-color:#43e97b; color:#43e97b; }
+.forme-chip.on-bad  { background:rgba(231,76,60,.18); border-color:#e74c3c; color:#e74c3c; }
+.forme-chip.on-neutral { background:rgba(247,151,30,.18); border-color:#f7971e; color:#f7971e; }
+.forme-time-in { width:88px; background:var(--bg); border:1px solid rgba(136,136,153,.3); color:var(--text); border-radius:8px; padding:6px 8px; font-size:.8rem; }
+.forme-score-badge { display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border-radius:12px; font-weight:800; font-size:1.05rem; }
+.forme-score-badge .fs-sub { font-size:.78rem; font-weight:600; opacity:.9; }
+
 /* ===== MENU BURGER MOBILE ===== */
 .burger-btn { display:none; background:transparent; border:none; color:var(--text); cursor:pointer; padding:8px; border-radius:8px; flex-direction:column; gap:5px; align-items:center; justify-content:center; }
 .burger-btn span { display:block; width:22px; height:2px; background:var(--text); border-radius:2px; transition:all .2s; }
@@ -791,6 +805,60 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
       <div style="margin-top:20px"><button class="btn btn-primary" onclick="savePoids()">💾 Enregistrer</button></div>
     </div>
   </div>
+
+  <!-- ===== FORME DU JOUR ===== -->
+  <div class="card">
+    <h2>🧭 Forme du jour <span style="font-size:.7rem;font-weight:600;color:var(--muted)">(facultatif)</span></h2>
+    <p style="font-size:.8rem;color:var(--muted);margin:-4px 0 12px">Sert à expliquer tes performances et, plus tard, à savoir quand pousser ou récupérer.</p>
+
+    <div class="forme-row">
+      <div class="forme-q">😴 Bien dormi ?</div>
+      <div class="forme-opts" id="forme-sommeil">
+        <span class="forme-chip" data-v="oui" onclick="setForme('sommeil','oui')">Oui</span>
+        <span class="forme-chip" data-v="moyen" onclick="setForme('sommeil','moyen')">Moyen</span>
+        <span class="forme-chip" data-v="non" onclick="setForme('sommeil','non')">Non</span>
+      </div>
+    </div>
+
+    <div class="forme-row">
+      <div class="forme-q">🍽️ Repas</div>
+      <div class="forme-opts" id="forme-repas">
+        <span class="forme-chip" data-v="habituel" onclick="setForme('repas','habituel')">Habituel</span>
+        <span class="forme-chip" data-v="tard" onclick="setForme('repas','tard')">Plus tard</span>
+        <input type="time" class="forme-time-in" id="forme-repas-heure" onblur="setFormeTime(this.value)" title="Heure du repas">
+      </div>
+    </div>
+
+    <div class="forme-row">
+      <div class="forme-q">🥱 Fatigué ?</div>
+      <div class="forme-opts" id="forme-fatigue">
+        <span class="forme-chip" data-v="non" onclick="setForme('fatigue','non')">Non</span>
+        <span class="forme-chip" data-v="oui" onclick="setForme('fatigue','oui')">Oui</span>
+      </div>
+    </div>
+
+    <div class="forme-row">
+      <div class="forme-q">🤕 Mal de tête ?</div>
+      <div class="forme-opts" id="forme-maltete">
+        <span class="forme-chip" data-v="non" onclick="setForme('maltete','non')">Non</span>
+        <span class="forme-chip" data-v="oui" onclick="setForme('maltete','oui')">Oui</span>
+      </div>
+    </div>
+
+    <div class="forme-row">
+      <div class="forme-q">🔀 Sorti de la routine ?</div>
+      <div class="forme-opts" id="forme-routine">
+        <span class="forme-chip" data-v="non" onclick="setForme('routine','non')">Non</span>
+        <span class="forme-chip" data-v="oui" onclick="setForme('routine','oui')">Oui</span>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;flex-wrap:wrap">
+      <div id="forme-score-wrap"></div>
+      <button class="btn btn-primary" onclick="saveForme()">💾 Enregistrer la forme</button>
+    </div>
+  </div>
+
   <div class="stats-row">
     <div class="stat-pill"><div class="val" id="poids-avg7" style="color:var(--accent2)">--</div><div class="lbl">Moy. 7 derniers j.</div></div>
     <div class="stat-pill"><div class="val" id="poids-avg7-prev" style="color:var(--muted)">--</div><div class="lbl">Moy. 7j précédents</div></div>
@@ -2095,6 +2163,105 @@ function renderPoids(){
         return `<tr><td>${formatDateFull(p.date)}</td><td style="font-weight:700">${p.val} kg</td><td style="color:${delta==null?'var(--muted)':delta>0?'#43e97b':'#ff6584'}">${delta!=null?(delta>=0?'+':'')+delta+' kg':'—'}</td></tr>`;
       }).join('')}</tbody>
     </table>`;
+
+  renderForme();
+}
+
+// ===================== FORME DU JOUR =====================
+// Brouillon en cours d'édition (avant clic Enregistrer)
+let _formeDraft=null;
+
+function _emptyForme(){ return {sommeil:null,repas:null,repasHeure:'',fatigue:null,maltete:null,routine:null}; }
+
+// Calcule un score de forme 0-10 (10 = au top, prêt à pousser)
+function computeFormeScore(f){
+  if(!f) return null;
+  // Si rien n'est renseigné, pas de score
+  const answered=['sommeil','fatigue','maltete','routine','repas'].some(k=>f[k]);
+  if(!answered) return null;
+  let s=10;
+  if(f.sommeil==='moyen') s-=1.5; else if(f.sommeil==='non') s-=3;
+  if(f.repas==='tard') s-=1;
+  if(f.fatigue==='oui') s-=2.5;
+  if(f.maltete==='oui') s-=1.5;
+  if(f.routine==='oui') s-=1;
+  return Math.max(0,Math.min(10,Math.round(s*10)/10));
+}
+
+function _formeVerdict(score){
+  if(score==null) return {txt:'Réponds aux questions pour obtenir ton score',col:'var(--muted)',bg:'rgba(136,136,153,.12)'};
+  if(score>=8)  return {txt:'💪 Au top — tu peux tout envoyer',col:'#43e97b',bg:'rgba(67,233,123,.15)'};
+  if(score>=5)  return {txt:'👍 Correct — séance normale',col:'#f7971e',bg:'rgba(247,151,30,.15)'};
+  return {txt:'🛟 Forme basse — séance allégée conseillée',col:'#e74c3c',bg:'rgba(231,76,60,.15)'};
+}
+
+// Classe couleur d'une réponse (bon = vert, mauvais = rouge, neutre = orange)
+function _formeChipClass(field,val){
+  const good={sommeil:'oui',repas:'habituel',fatigue:'non',maltete:'non',routine:'non'};
+  const neutral={sommeil:'moyen'};
+  if(neutral[field]===val) return 'on-neutral';
+  return good[field]===val ? 'on-good' : 'on-bad';
+}
+
+function setForme(field,val){
+  if(!_formeDraft) _formeDraft=_emptyForme();
+  _formeDraft[field]=val;
+  // Met à jour l'UI du groupe
+  const map={sommeil:'forme-sommeil',repas:'forme-repas',fatigue:'forme-fatigue',maltete:'forme-maltete',routine:'forme-routine'};
+  const grp=document.getElementById(map[field]);
+  if(grp){
+    grp.querySelectorAll('.forme-chip').forEach(c=>{
+      c.className='forme-chip';
+      if(c.dataset.v===val) c.classList.add(_formeChipClass(field,val));
+    });
+  }
+  _renderFormeScore();
+}
+
+function setFormeTime(val){
+  if(!_formeDraft) _formeDraft=_emptyForme();
+  _formeDraft.repasHeure=val||'';
+}
+
+function _renderFormeScore(){
+  const wrap=document.getElementById('forme-score-wrap');
+  if(!wrap)return;
+  const score=computeFormeScore(_formeDraft);
+  const v=_formeVerdict(score);
+  wrap.innerHTML=`<div class="forme-score-badge" style="background:${v.bg};color:${v.col}">
+    ${score!=null?`Forme : ${score}/10`:'Forme : --'}
+    <span class="fs-sub">${v.txt}</span>
+  </div>`;
+}
+
+function renderForme(){
+  const data=getData(),date=getDateKey();
+  const saved=(data[date]||{}).forme;
+  _formeDraft=saved?{..._emptyForme(),...saved}:_emptyForme();
+  // Réinitialise tous les chips puis applique l'état sauvegardé
+  const map={sommeil:'forme-sommeil',repas:'forme-repas',fatigue:'forme-fatigue',maltete:'forme-maltete',routine:'forme-routine'};
+  Object.entries(map).forEach(([field,id])=>{
+    const grp=document.getElementById(id);
+    if(!grp)return;
+    const val=_formeDraft[field];
+    grp.querySelectorAll('.forme-chip').forEach(c=>{
+      c.className='forme-chip';
+      if(val&&c.dataset.v===val) c.classList.add(_formeChipClass(field,val));
+    });
+  });
+  const t=document.getElementById('forme-repas-heure');
+  if(t) t.value=_formeDraft.repasHeure||'';
+  _renderFormeScore();
+}
+
+function saveForme(){
+  const data=getData(),date=getDateKey();
+  const score=computeFormeScore(_formeDraft);
+  if(score==null){ showToast('⚠️ Réponds à au moins une question'); return; }
+  const f={..._formeDraft,score};
+  getOrCreate(data,date).forme=f;
+  saveData(data);silentExport().catch(()=>{});
+  showToast('✅ Forme enregistrée — '+score+'/10');
 }
 
 // ===================== OVERVIEW =====================
@@ -2394,7 +2561,7 @@ function renderDayEditor(dw){
     <div style="margin-bottom:14px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
       <div class="form-group" style="max-width:260px">
         <label>Nom de la séance (${JOURS[dw]})</label>
-        <input type="text" id="prog-day-label" value="${dp.label||''}" placeholder="Ex: Push A, Dos/Biceps…" oninput="updateProgLabel(${dw})">
+        <input type="text" id="prog-day-label" value="${dp.label||''}" placeholder="Ex: Push A, Dos/Biceps…" onblur="updateProgLabel(${dw})">
       </div>
       <button class="btn btn-outline btn-sm" onclick="addProgBlock(${dw},'single')">+ Exercice</button>
       <button class="btn btn-outline btn-sm" onclick="addProgBlock(${dw},'biset')" style="border-color:var(--accent3);color:var(--accent3)">+ Biset</button>
@@ -2443,11 +2610,11 @@ function renderProgBlock(block,bi,dw){
         </select>
         <div style="display:flex;flex-direction:column;gap:2px">
           <label style="font-size:.62rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Séries</label>
-          <input type="number" placeholder="4" value="${ex.sets||4}" min="1" max="10" style="width:60px" onchange="updateProgEx(${dw},${bi},${ei},'sets',parseInt(this.value))">
+          <input type="number" placeholder="4" value="${ex.sets||4}" min="1" max="10" style="width:60px" onblur="updateProgEx(${dw},${bi},${ei},'sets',parseInt(this.value)||1)">
         </div>
         <div style="display:flex;flex-direction:column;gap:2px">
           <label style="font-size:.62rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Reps visées</label>
-          <input type="number" placeholder="10" value="${ex.reps||10}" min="1" max="50" style="width:60px" onchange="updateProgEx(${dw},${bi},${ei},'reps',parseInt(this.value))">
+          <input type="number" placeholder="10" value="${ex.reps||10}" min="1" max="50" style="width:60px" onblur="updateProgEx(${dw},${bi},${ei},'reps',parseInt(this.value)||1)">
         </div>
       </div>`;
   }).join('');
