@@ -763,38 +763,16 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   <!-- MON PROGRAMME -->
   <div id="sub-programme" class="subsection">
 
-    <!-- PROFIL D'ENTRAÎNEMENT (périodisation) -->
-    <div class="card">
-      <h2>🎯 Profil d'entraînement</h2>
-      <p style="font-size:.8rem;color:var(--muted);margin:-4px 0 14px">Sert au moteur de conseils (quand monter les poids, faire du rest-pause, ou décharger).</p>
-      <div class="profile-grid">
-        <div>
-          <div class="profile-q">Ton objectif principal</div>
-          <div class="profile-opts" id="profile-objectif">
-            <span class="profile-chip" data-v="masse" onclick="setProfile('objectif','masse')">💪 Prise de masse</span>
-            <span class="profile-chip" data-v="force" onclick="setProfile('objectif','force')">🏋️ Prise de force</span>
-            <span class="profile-chip" data-v="gras" onclick="setProfile('objectif','gras')">🔥 Perte de gras</span>
-          </div>
-        </div>
-        <div>
-          <div class="profile-q">Années d'entraînement sérieux</div>
-          <div class="profile-opts" id="profile-experience">
-            <span class="profile-chip" data-v="debutant" onclick="setProfile('experience','debutant')">Débutant (&lt;1 an)</span>
-            <span class="profile-chip" data-v="intermediaire" onclick="setProfile('experience','intermediaire')">Intermédiaire (1-3 ans)</span>
-            <span class="profile-chip" data-v="avance" onclick="setProfile('experience','avance')">Avancé (3 ans+)</span>
-          </div>
-        </div>
-      </div>
-      <div id="profile-summary" style="margin-top:14px"></div>
-    </div>
-
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
         <h2 style="margin-bottom:0">📋 Programme hebdomadaire</h2>
         <span id="prog-save-indicator" style="font-size:.78rem;color:var(--accent3);font-weight:700;opacity:0;transition:opacity .4s">✅ Sauvegardé</span>
       </div>
       <p style="color:var(--muted);font-size:.84rem;margin-bottom:16px">Définis tes exercices par jour. Le programme se sauvegarde automatiquement.</p>
-      <div id="program-switcher" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px"></div>
+      <div id="program-switcher" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"></div>
+      <div style="margin-bottom:16px">
+        <button class="btn btn-outline btn-sm" onclick="importSessionsToProgram()" title="Reconstruit le programme à partir de tes séances déjà enregistrées">📥 Importer mes séances enregistrées</button>
+      </div>
       <div id="weeklySchedule" class="weekly-schedule"></div>
       <div id="progDayEditor"><div class="empty"><div class="icon">📅</div>Sélectionne un jour pour l'éditer</div></div>
     </div>
@@ -908,6 +886,31 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <!-- ===== ANALYSE ===== -->
 <div id="sec-analyse" class="section">
+
+  <!-- PROFIL D'ENTRAÎNEMENT (périodisation) -->
+  <div class="card">
+    <h2>🎯 Profil d'entraînement</h2>
+    <p style="font-size:.8rem;color:var(--muted);margin:-4px 0 14px">Sert au moteur de conseils dans ta séance (quand monter les poids, faire du rest-pause, ou décharger).</p>
+    <div class="profile-grid">
+      <div>
+        <div class="profile-q">Ton objectif principal</div>
+        <div class="profile-opts" id="profile-objectif">
+          <span class="profile-chip" data-v="masse" onclick="setProfile('objectif','masse')">💪 Prise de masse</span>
+          <span class="profile-chip" data-v="force" onclick="setProfile('objectif','force')">🏋️ Prise de force</span>
+          <span class="profile-chip" data-v="gras" onclick="setProfile('objectif','gras')">🔥 Perte de gras</span>
+        </div>
+      </div>
+      <div>
+        <div class="profile-q">Années d'entraînement sérieux</div>
+        <div class="profile-opts" id="profile-experience">
+          <span class="profile-chip" data-v="debutant" onclick="setProfile('experience','debutant')">Débutant (&lt;1 an)</span>
+          <span class="profile-chip" data-v="intermediaire" onclick="setProfile('experience','intermediaire')">Intermédiaire (1-3 ans)</span>
+          <span class="profile-chip" data-v="avance" onclick="setProfile('experience','avance')">Avancé (3 ans+)</span>
+        </div>
+      </div>
+    </div>
+    <div id="profile-summary" style="margin-top:14px"></div>
+  </div>
 
   <!-- INDICATEUR FATIGUE / REST WEEK -->
   <div class="card">
@@ -1294,6 +1297,75 @@ function deleteProgram(){
   renderAll();
   showToast('🗑️ Programme supprimé');
 }
+// ── Reconstruit le programme actif à partir des séances déjà enregistrées ──
+function importSessionsToProgram(){
+  const data=getData();
+  const dayKeys=Object.keys(data).filter(k=>(data[k].exercises||[]).length>0).sort();
+  if(!dayKeys.length){ showToast('⚠️ Aucune séance enregistrée à importer'); return; }
+
+  // Pour chaque jour de la semaine (0=Dim..6=Sam), prend la séance la PLUS RÉCENTE
+  const latestByDow={};
+  dayKeys.forEach(k=>{
+    const dow=new Date(k+'T12:00:00').getDay();
+    latestByDow[dow]=k; // dayKeys trié croissant → la dernière écrase = la plus récente
+  });
+
+  const dows=Object.keys(latestByDow).map(Number);
+  const name=getActiveProgramName();
+  if(!confirm(`Importer tes séances dans « ${name} » ?\n\n${dows.length} jour(s) seront (re)remplis à partir de tes dernières séances enregistrées. Tu pourras tout ajuster ensuite.`)) return;
+
+  const prog=getProg();
+  let totalEx=0;
+
+  dows.forEach(dow=>{
+    const dateKey=latestByDow[dow];
+    const exs=(data[dateKey].exercises||[]).filter(e=>e.name);
+    if(!exs.length) return;
+
+    // Représentation d'un exercice : nom, nb de séries, reps cibles
+    const mapped=exs.map(e=>{
+      const sd=e.setData&&e.setData.length?e.setData:null;
+      const sets=sd?sd.length:(e.sets||3);
+      let reps=e.reps||10;
+      if(sd){ // reps les plus fréquentes
+        const counts={};
+        sd.forEach(s=>{const r=+s.reps||0; if(r) counts[r]=(counts[r]||0)+1;});
+        const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+        if(best) reps=+best[0];
+      }
+      return {name:e.name,sets,reps};
+    });
+    totalEx+=mapped.length;
+
+    const existing=prog[dow];
+    const existingBlocks=existing&&existing.blocks?existing.blocks:[];
+    const slotCount=existingBlocks.reduce((n,b)=>n+((b.exercises||[]).length||1),0);
+
+    // Si la structure existante (bisets/trisets) correspond au nb d'exercices → on garde
+    // la structure et on remplit juste les noms/séries/reps dans l'ordre.
+    if(existingBlocks.length && slotCount===mapped.length){
+      let idx=0;
+      existingBlocks.forEach(b=>{
+        const cnt=(b.exercises||[]).length||1;
+        b.exercises=Array.from({length:cnt},()=>mapped[idx++]);
+      });
+      prog[dow]={...existing,isRest:false,blocks:existingBlocks};
+    } else {
+      // Sinon : un bloc "single" par exercice
+      prog[dow]={
+        label:(existing&&existing.label)||'',
+        isRest:false,
+        blocks:mapped.map(m=>({type:'single',exercises:[m]}))
+      };
+    }
+  });
+
+  saveProg(prog);
+  _editingDay=null;
+  renderProgrammeEditor();
+  showToast(`✅ ${totalEx} exercices importés sur ${dows.length} jour(s)`);
+}
+
 function renderProgramSwitcher(){
   const el=document.getElementById('program-switcher');
   if(!el)return;
@@ -2650,6 +2722,7 @@ function renderOverview(){
 
 // ===================== ANALYSE =====================
 function renderAnalyse(){
+  renderProfile();
   renderFatigue();
   renderMonthCalendar();
   renderVol4w();
@@ -2819,7 +2892,6 @@ function renderLastTrained(){
 // ===================== PROGRAMME EDITOR =====================
 let _editingDay=null;
 function renderProgrammeEditor(){
-  renderProfile();
   renderProgramSwitcher();
   const prog=getProg();
   const today=new Date().getDay();
