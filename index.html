@@ -1023,6 +1023,7 @@ function _pendingAdd(date){ const p=_pendingGet(); p[date]=Date.now(); _pendingS
 function _pendingRemove(date){ const p=_pendingGet(); if(p[date]){ delete p[date]; _pendingSet(p); } }
 
 let _flushing=false;
+let _progNeedsPush=false;   // le programme local est plus complet que le cloud → à re-pousser
 // Renvoie true si tout est synchronisé
 async function _flushPending(opts={}){
   if(_flushing) return false;
@@ -1111,11 +1112,23 @@ async function _loadFromCloud(){
           }
         });
 
-      } else if(row.key===PROG_KEY||row.key===BMR_KEY||row.key===PROGRAMS_KEY||row.key===PROFILE_KEY){
-        // Programme(s), BMR & profil : cloud gagne seulement si local est absent
-        const cloudVal=JSON.stringify(row.value);
+      } else if(row.key===PROGRAMS_KEY){
+        // Programmes multiples : le plus COMPLET gagne (jamais écraser par du vide)
+        const cloudRich=_progContainerRichness(JSON.stringify(row.value));
+        const localRich=_progContainerRichness(localStorage.getItem(PROGRAMS_KEY));
+        if(cloudRich>localRich){ localStorage.setItem(PROGRAMS_KEY,JSON.stringify(row.value)); changed=true; }
+        else if(localRich>cloudRich){ _progNeedsPush=true; } // local plus complet → re-pousser
+
+      } else if(row.key===PROG_KEY){
+        // Miroir de l'ancien programme : le plus complet gagne
+        const cloudRich=_progDaysRichness(JSON.stringify(row.value));
+        const localRich=_progDaysRichness(localStorage.getItem(PROG_KEY));
+        if(cloudRich>localRich){ localStorage.setItem(PROG_KEY,JSON.stringify(row.value)); changed=true; }
+
+      } else if(row.key===BMR_KEY||row.key===PROFILE_KEY){
+        // BMR & profil : cloud gagne seulement si local est absent
         if(!localStorage.getItem(row.key)){
-          localStorage.setItem(row.key,cloudVal);changed=true;
+          localStorage.setItem(row.key,JSON.stringify(row.value));changed=true;
         }
       }
     });
@@ -1127,6 +1140,12 @@ async function _loadFromCloud(){
     });
     // Pousse tout ce qui est en attente (jours jamais arrivés au cloud)
     await _flushPending();
+    // Si le programme local est plus complet que le cloud → réaligne le cloud
+    if(_progNeedsPush){
+      _progNeedsPush=false;
+      _syncToCloud(PROGRAMS_KEY,getProgramsContainer());
+      _syncToCloud(PROG_KEY,getProg());
+    }
     if(changed) showToast('☁️ Données à jour');
   }catch(e){
     console.warn('[Cloud] load failed',e);
@@ -1256,8 +1275,23 @@ function getProgramsContainer(){
   try{ oldDays=JSON.parse(localStorage.getItem(PROG_KEY))||{}; }catch(e){}
   const id=_newProgId();
   c={activeId:id,programs:{[id]:{name:'Programme 1',days:oldDays}}};
-  localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c));
+  // ⚠️ On ne persiste QUE s'il y a réellement un programme à migrer.
+  // Écrire un conteneur VIDE trop tôt (avant que le cloud ait répondu) empêcherait
+  // la restauration cloud → le programme apparaîtrait vide à chaque connexion.
+  if(Object.keys(oldDays).length){ localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c)); }
   return c;
+}
+// Mesure la "richesse" d'un programme = nb total d'exercices nommés (pour comparer local vs cloud)
+function _progDaysRichness(raw){
+  try{ const d=JSON.parse(raw)||{};
+    return Object.values(d).reduce((n,day)=>n+((day&&day.blocks?day.blocks:[])
+      .reduce((m,b)=>m+((b.exercises||[]).filter(e=>e&&e.name).length),0)),0);
+  }catch(e){ return 0; }
+}
+function _progContainerRichness(raw){
+  try{ const c=JSON.parse(raw); if(!c||!c.programs)return 0;
+    return Object.values(c.programs).reduce((n,p)=>n+_progDaysRichness(JSON.stringify(p.days||{})),0);
+  }catch(e){ return 0; }
 }
 function _saveProgramsContainer(c,{sync=true}={}){
   localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c));
@@ -2081,7 +2115,8 @@ function setRowHTML(bi,key,sn,defaultReps,defaultWeight,defaultMyo,refReps,refW)
 function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
   const currentDate=getDateKey();
   const lastPerf=getLastPerf(ex.name,currentDate);
-  const n=prefillSets?prefillSets.length:(ex.sets||4);
+  // Le nb de séries suit le PROGRAMME (ex.sets), sans jamais masquer des séries déjà saisies
+  const n=Math.max(ex.sets||0, prefillSets?prefillSets.length:0)||4;
 
   const rows=Array.from({length:n},(_,i)=>{
     const ps=prefillSets?prefillSets[i]:null;
@@ -2313,9 +2348,10 @@ function renderProgPreview(){
       const named=exs.map((ex,ei)=>({ex,ei})).filter(o=>o.ex&&o.ex.name);
       if(!named.length) return '';
       // Nombre de séries = UNIFORME pour tout le groupe → chaque exercice apparaît à CHAQUE série
+      // Suit le PROGRAMME (ex.sets) sans masquer des séries déjà saisies
       const nSets=Math.max(1,...named.map(({ex})=>{
         const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
-        return pf?pf.length:(ex.sets||4);
+        return Math.max(ex.sets||0, pf?pf.length:0)||4;
       }));
       const currentDate=getDateKey();
       const exLastPerfs=named.map(({ex})=>getLastPerf(ex.name,currentDate));
