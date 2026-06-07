@@ -972,6 +972,7 @@ const STEPS_GOAL_KEY='fitness_steps_goal';
 const EDIT_BACKUP_KEY='fitness_edit_backup';   // survit aux rechargements
 const SNAP_PREFIX='fitness_snap_';             // snapshots quotidiens automatiques
 const LAST_SAVE_KEY='fitness_last_save';
+const PENDING_KEY='fitness_pending_sync';      // jours en attente de synchro cloud (anti perte de données)
 
 const JOURS=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
 const MOIS=['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
@@ -1002,14 +1003,47 @@ function _setCloudStatus(state,label){
   if(txtM) txtM.textContent=label;
 }
 
-async function _sbPost(rows){
+async function _sbPost(rows,opts={}){
   // rows = tableau d'objets {key, value, updated_at}
   const res=await fetch(_SB_URL+'/rest/v1/fitness_store',{
     method:'POST',
     headers:_SB_HDR,
-    body:JSON.stringify(Array.isArray(rows)?rows:[rows])
+    body:JSON.stringify(Array.isArray(rows)?rows:[rows]),
+    keepalive:opts.keepalive||false   // permet à la requête de finir même si la page se ferme
   });
   if(!res.ok){const t=await res.text().catch(()=>'');throw new Error('HTTP '+res.status+': '+t);}
+}
+
+// ===================== FILE D'ATTENTE DE SYNCHRO (anti perte de données) =====================
+// Tout jour modifié est marqué "en attente" tant que le cloud n'a pas confirmé.
+// On retente : au chargement, périodiquement, et à la fermeture de l'app.
+function _pendingGet(){ try{return JSON.parse(localStorage.getItem(PENDING_KEY))||{};}catch(e){return{};} }
+function _pendingSet(p){ try{localStorage.setItem(PENDING_KEY,JSON.stringify(p));}catch(e){} }
+function _pendingAdd(date){ const p=_pendingGet(); p[date]=Date.now(); _pendingSet(p); }
+function _pendingRemove(date){ const p=_pendingGet(); if(p[date]){ delete p[date]; _pendingSet(p); } }
+
+let _flushing=false;
+// Renvoie true si tout est synchronisé
+async function _flushPending(opts={}){
+  if(_flushing) return false;
+  const p=_pendingGet();
+  const dates=Object.keys(p);
+  if(!dates.length){ _setCloudStatus('ok','☁️'); return true; }
+  _flushing=true;
+  _setCloudStatus('sync','☁️');
+  const data=getData();
+  let allOk=true;
+  for(const date of dates){
+    const day=data[date];
+    if(!day){ _pendingRemove(date); continue; } // jour disparu localement → rien à pousser
+    try{
+      await _sbPost({key:_SB_DAY_PREFIX+date,value:day,updated_at:new Date().toISOString()},{keepalive:opts.keepalive});
+      _pendingRemove(date);
+    }catch(e){ allOk=false; /* on garde en attente, on retentera */ }
+  }
+  _flushing=false;
+  _setCloudStatus(allOk?'ok':'off',allOk?'☁️':'⚠️');
+  return allOk;
 }
 async function _sbGet(){
   const res=await fetch(_SB_URL+'/rest/v1/fitness_store?select=*',{
@@ -1022,9 +1056,13 @@ async function _sbGet(){
 // ── Sauvegarde d'UN seul jour vers Supabase (non-bloquant) ──────────────────
 async function _syncDay(dateKey,dayData){
   if(!dateKey||!dayData) return;
+  _pendingAdd(dateKey);          // marqué en attente AVANT l'envoi → jamais perdu si l'envoi échoue
+  _setCloudStatus('sync','☁️');
   try{
     await _sbPost({key:_SB_DAY_PREFIX+dateKey,value:dayData,updated_at:new Date().toISOString()});
-  }catch(e){ console.warn('[Cloud] syncDay failed',e); _setCloudStatus('off','⚠️'); }
+    _pendingRemove(dateKey);
+    _setCloudStatus(Object.keys(_pendingGet()).length?'sync':'ok','☁️');
+  }catch(e){ console.warn('[Cloud] syncDay failed (gardé en attente)',e); _setCloudStatus('off','⚠️'); }
 }
 
 // ── Règle de fusion pour UN jour ─────────────────────────────────────────────
@@ -1044,18 +1082,22 @@ async function _loadFromCloud(){
   try{
     _setCloudStatus('sync','☁️');
     const rows=await _sbGet();
-    if(!rows||!rows.length){_setCloudStatus('ok','☁️');return;}
+    if(!rows||!rows.length){ await _flushPending(); return; }
 
     let local={};
     try{local=JSON.parse(localStorage.getItem(DB_KEY))||{};}catch(e){}
     let changed=false;
 
+    const cloudDates=new Set();
     rows.forEach(row=>{
       if(row.key.startsWith(_SB_DAY_PREFIX)){
         // Ligne par-jour (nouveau format)
         const date=row.key.slice(_SB_DAY_PREFIX.length);
+        cloudDates.add(date);
         const merged=_mergeDay(local[date],row.value);
         if(JSON.stringify(merged)!==JSON.stringify(local[date])){local[date]=merged;changed=true;}
+        // Si le local a gagné (plus complet que le cloud) → re-pousser pour aligner le cloud
+        if(JSON.stringify(merged)!==JSON.stringify(row.value)){ _pendingAdd(date); }
 
       } else if(row.key===DB_KEY){
         // Ancien format monolithique → migration : décompose en jours
@@ -1079,7 +1121,12 @@ async function _loadFromCloud(){
     });
 
     if(changed){localStorage.setItem(DB_KEY,JSON.stringify(local));}
-    _setCloudStatus('ok','☁️');
+    // Jours présents en local mais ABSENTS du cloud (jamais synchronisés) → à pousser
+    Object.keys(local).forEach(date=>{
+      if(!cloudDates.has(date) && (local[date].exercises||[]).length) _pendingAdd(date);
+    });
+    // Pousse tout ce qui est en attente (jours jamais arrivés au cloud)
+    await _flushPending();
     if(changed) showToast('☁️ Données à jour');
   }catch(e){
     console.warn('[Cloud] load failed',e);
@@ -1322,7 +1369,7 @@ function importSessionsToProgram(){
     const exs=(data[dateKey].exercises||[]).filter(e=>e.name);
     if(!exs.length) return;
 
-    // Représentation d'un exercice : nom, nb de séries, reps cibles
+    // Représentation d'un exercice : nom, nb de séries, reps cibles (+ infos de groupe)
     const mapped=exs.map(e=>{
       const sd=e.setData&&e.setData.length?e.setData:null;
       const sets=sd?sd.length:(e.sets||3);
@@ -1333,31 +1380,41 @@ function importSessionsToProgram(){
         const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
         if(best) reps=+best[0];
       }
-      return {name:e.name,sets,reps};
+      return {ex:{name:e.name,sets,reps}, gtype:e.group_type||null, gid:e.group_id||null};
     });
     totalEx+=mapped.length;
 
-    const existing=prog[dow];
-    const existingBlocks=existing&&existing.blocks?existing.blocks:[];
-    const slotCount=existingBlocks.reduce((n,b)=>n+((b.exercises||[]).length||1),0);
-
-    // Si la structure existante (bisets/trisets) correspond au nb d'exercices → on garde
-    // la structure et on remplit juste les noms/séries/reps dans l'ordre.
-    if(existingBlocks.length && slotCount===mapped.length){
-      let idx=0;
-      existingBlocks.forEach(b=>{
-        const cnt=(b.exercises||[]).length||1;
-        b.exercises=Array.from({length:cnt},()=>mapped[idx++]);
-      });
-      prog[dow]={...existing,isRest:false,blocks:existingBlocks};
-    } else {
-      // Sinon : un bloc "single" par exercice
-      prog[dow]={
-        label:(existing&&existing.label)||'',
-        isRest:false,
-        blocks:mapped.map(m=>({type:'single',exercises:[m]}))
-      };
+    // Reconstruit les blocs en respectant les bisets/trisets (group_id + group_type)
+    const blocks=[];
+    let i=0;
+    while(i<mapped.length){
+      const cur=mapped[i];
+      const isGroup=cur.gtype==='biset'||cur.gtype==='triset';
+      if(isGroup && cur.gid!=null){
+        // Regroupe tous les exercices consécutifs partageant le même group_id
+        const grp=[cur.ex]; let j=i+1;
+        while(j<mapped.length && mapped[j].gid===cur.gid && mapped[j].gtype===cur.gtype){
+          grp.push(mapped[j].ex); j++;
+        }
+        blocks.push({type:cur.gtype,exercises:grp});
+        i=j;
+      } else if(isGroup){
+        // group_type sans group_id (ancien format) → chunk par taille (biset=2, triset=3)
+        const size=cur.gtype==='triset'?3:2;
+        const grp=[]; let j=i;
+        while(j<mapped.length && mapped[j].gtype===cur.gtype && grp.length<size){
+          grp.push(mapped[j].ex); j++;
+        }
+        blocks.push({type:cur.gtype,exercises:grp});
+        i=j;
+      } else {
+        blocks.push({type:'single',exercises:[cur.ex]});
+        i++;
+      }
     }
+
+    const existing=prog[dow];
+    prog[dow]={ label:(existing&&existing.label)||'', isRest:false, blocks };
   });
 
   saveProg(prog);
@@ -2100,14 +2157,16 @@ function changeGroupSets(bi,delta,ctrlId){
   const dw=new Date(getDateKey()+'T12:00:00').getDay();
   const block=(getProg()[dw]||{blocks:[]}).blocks[bi];
   if(!block)return;
-  const exs=block.exercises||[];
+  const allExs=block.exercises||[];
+  // Ne garde que les exercices nommés, en conservant leur index d'origine (pour data-ex)
+  const named=allExs.map((ex,ei)=>({ex,ei})).filter(o=>o.ex&&o.ex.name);
   const currentDate=getDateKey();
-  const lastPerfs=exs.map(ex=>getLastPerf(ex.name,currentDate));
+  const lastPerfs=named.map(({ex})=>getLastPerf(ex.name,currentDate));
   // Préserve les valeurs existantes
   const existingBlocks=container.querySelectorAll('.biset-set-block');
   const existingVals=[];
   existingBlocks.forEach(blk=>{
-    const exVals=exs.map((_,ei)=>({
+    const exVals=named.map(({ei})=>({
       weight:blk.querySelector(`[data-ex="${ei}"][data-field="weight"]`)?.value||'',
       reps:blk.querySelector(`[data-ex="${ei}"][data-field="reps"]`)?.value||'',
       myoreps:blk.querySelector(`[data-ex="${ei}"][data-field="myoreps"]`)?.value||''
@@ -2117,9 +2176,9 @@ function changeGroupSets(bi,delta,ctrlId){
   let html='';
   for(let si=0;si<n;si++){
     const sn=si+1;
-    const exLines=exs.map((ex,ei)=>{
-      const ev=existingVals[si]?existingVals[si][ei]:{};
-      const lp=lastPerfs[ei];
+    const exLines=named.map(({ex,ei},k)=>{
+      const ev=existingVals[si]?existingVals[si][k]:{};
+      const lp=lastPerfs[k];
       const ref=lp?(lp.sets[si]||lp.sets[lp.sets.length-1]):null;
       const defW=(ev.weight!==undefined&&ev.weight!=='')?ev.weight:(ref?ref.weight:'');
       const defR=(ev.reps!==undefined&&ev.reps!=='')?ev.reps:(ref?ref.reps:(ex.reps||10));
@@ -2249,27 +2308,25 @@ function renderProgPreview(){
       const groupCls=isTriset?'triset-group':'biset-group';
       const labelCls=isTriset?'triset':'biset';
       const labelTxt=isTriset?'Triset':'Biset';
-      // Nb de séries = MAX de toutes les séries de chaque exercice (pas seulement le premier)
-      const exSetCounts=exs.map((ex,ei)=>{
+      // On ne garde que les exercices RÉELLEMENT nommés, mais on conserve leur index d'origine
+      // (data-ex DOIT correspondre à l'index dans block.exercises pour la sauvegarde)
+      const named=exs.map((ex,ei)=>({ex,ei})).filter(o=>o.ex&&o.ex.name);
+      if(!named.length) return '';
+      // Nombre de séries = UNIFORME pour tout le groupe → chaque exercice apparaît à CHAQUE série
+      const nSets=Math.max(1,...named.map(({ex})=>{
         const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
         return pf?pf.length:(ex.sets||4);
-      });
-      const nSets=Math.max(...exSetCounts);
-      // Récupère lastPerf pour chaque exercice
+      }));
       const currentDate=getDateKey();
-      const exLastPerfs=exs.map(ex=>getLastPerf(ex.name,currentDate));
-      const hasAnyRef=exLastPerfs.some(lp=>lp!==null);
-      // Sets ctrl ID
+      const exLastPerfs=named.map(({ex})=>getLastPerf(ex.name,currentDate));
       const setsCtrlId=`bisets-ctrl-${bi}`;
-      // Build sets rows grouped par série
+      // Build sets rows grouped par série — TOUS les exercices à chaque série
       const setsHTML=Array.from({length:nSets},(_,si)=>{
         const sn=si+1;
-        const exLines=exs.map((ex,ei)=>{
-          // N'affiche cet exercice que si sa série existe
-          if(si>=exSetCounts[ei]) return '';
+        const exLines=named.map(({ex,ei},k)=>{
           const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
           const ps=pf?pf[si]:null;
-          const lp=exLastPerfs[ei];
+          const lp=exLastPerfs[k];
           const ref=lp?(lp.sets[si]||lp.sets[lp.sets.length-1]):null;
           const defW=ps?ps.weight:(ref?ref.weight:'');
           const defR=ps?ps.reps:(ref?ref.reps:(ex.reps||10));
@@ -2289,17 +2346,16 @@ function renderProgPreview(){
             ${refBadge}
             </div>
           </div>`;
-        }).filter(l=>l).join('');
-        if(!exLines) return ''; // Série sans aucun exercice → skip
+        }).join('');
         return `<div class="biset-set-block"><div class="biset-set-title">Série ${sn}</div>${exLines}</div>`;
       }).join('');
-      const banners=exs.map((ex,ei)=>{
-        const lp=exLastPerfs[ei];
+      const banners=named.map(({ex},k)=>{
+        const lp=exLastPerfs[k];
         const lpb=lp?`<div class="last-perf-banner" style="margin-bottom:4px">📅 <strong>${ex.name}</strong> — il y a ${lp.daysAgo}j</div>`:'';
         return lpb+_recoBanner(ex.name);
       }).filter(Boolean).join('');
       return `<div class="${groupCls}">
-        <div class="group-label ${labelCls}">${labelTxt} — ${exs.map(e=>e.name).join(' + ')}</div>
+        <div class="group-label ${labelCls}">${labelTxt} — ${named.map(o=>o.ex.name).join(' + ')}</div>
         ${banners}
         <div class="sets-ctrl">
           <span class="sets-ctrl-lbl">Séries :</span>
@@ -2355,6 +2411,37 @@ function renderProgPreview(){
   </div>`;
   // Re-render les exercices extra si on revient sur la même date
   if(_extraExercises.length) _renderExtraExercises();
+
+  // ── Vérification : tous les exercices du programme sont bien dans la séance ──
+  _verifySessionExercises(dayProg);
+}
+
+// Contrôle de cohérence : chaque exercice nommé du programme doit avoir au moins
+// un champ de saisie présent dans la séance. Sinon, on alerte (au lieu de perdre l'exo).
+function _verifySessionExercises(dayProg){
+  const box=document.getElementById('prog-preview-box');
+  if(!box||!dayProg||!dayProg.blocks)return;
+  const missing=[];
+  dayProg.blocks.forEach((block,bi)=>{
+    (block.exercises||[]).forEach((ex,ei)=>{
+      if(!ex||!ex.name)return;
+      const present=box.querySelector(`[data-block="${bi}"][data-ex="${ei}"][data-field="reps"]`);
+      if(!present) missing.push(ex.name);
+    });
+  });
+  const old=document.getElementById('session-verify-warn');
+  if(old) old.remove();
+  if(missing.length){
+    const prev=box.querySelector('.prog-preview');
+    if(prev){
+      const w=document.createElement('div');
+      w.id='session-verify-warn';
+      w.className='day-readiness';
+      w.style.cssText='background:rgba(231,76,60,.12);color:#e74c3c';
+      w.innerHTML=`⚠️ Exercice(s) manquant(s) dans la séance : <strong>${missing.join(', ')}</strong>. Vérifie ton programme (${JOURS[new Date(getDateKey()+'T12:00:00').getDay()]}).`;
+      prev.insertBefore(w,prev.children[1]||null);
+    }
+  }
 }
 
 function saveFromPreview(){
@@ -2389,7 +2476,9 @@ function saveFromPreview(){
       const exObj={
         id:id++,name:ex.name,sets:setData.length,reps:setData[0].reps,weight:setData[0].weight,
         myoreps:setData[0].myoreps,setData,
-        group_type:btype==='single'?undefined:btype
+        group_type:btype==='single'?undefined:btype,
+        // group_id stable par bloc → permet de reconstituer biset/triset à l'import
+        group_id:btype==='single'?undefined:('g'+bi)
       };
       newExs.push(exObj);
     });
@@ -3273,6 +3362,16 @@ function renderAll(){
     const banner=document.getElementById('import-banner');
     if(!hasData&&banner) banner.style.display='flex';
   });
+
+  // Filet de sécurité synchro : retente régulièrement les jours en attente
+  setInterval(()=>{ _flushPending(); },20000);
+  // …et à chaque fois que l'app repasse au premier plan
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible') _flushPending();
+    else _flushPending({keepalive:true}); // app mise en arrière-plan → finir les envois
+  });
+  // …et juste avant la fermeture (keepalive = la requête survit à la fermeture)
+  window.addEventListener('pagehide',()=>{ _flushPending({keepalive:true}); });
 
   // Keyboard shortcut Ctrl+S
   document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();exportData();}});
