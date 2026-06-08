@@ -175,6 +175,18 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 .sqe-g input { background:var(--bg); border:1px solid var(--border); color:var(--text); padding:6px 8px; border-radius:7px; font-size:.88rem; width:68px; transition:border-color .15s; }
 .sqe-g input:focus { outline:none; border-color:var(--accent3); }
 .sqe-g input.wide { width:96px; }
+/* Fantôme gris = perf de la semaine précédente (placeholder, non rempli réellement) */
+.sqe-g input::placeholder { color:var(--muted); opacity:.5; font-weight:600; }
+/* Encadrement comparatif vs semaine précédente */
+.sqe-g input.fb-up   { border-color:#43e97b; box-shadow:0 0 0 1px #43e97b; }
+.sqe-g input.fb-down { border-color:#e74c3c; box-shadow:0 0 0 1px #e74c3c; }
+.sqe-g input.fb-eq   { border-color:#a78bfa; box-shadow:0 0 0 1px #a78bfa; }
+/* Tonnage par série */
+.set-ton { font-size:.72rem; font-weight:800; color:var(--muted); align-self:flex-end; padding-bottom:7px; white-space:nowrap; }
+.set-ton .set-ton-lbl { font-size:.58rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; display:block; }
+.set-ton.fb-up   { color:#43e97b; }
+.set-ton.fb-down { color:#e74c3c; }
+.set-ton.fb-eq   { color:#a78bfa; }
 
 /* SEANCE PER-SET ROWS */
 .ex-block-header { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
@@ -2044,6 +2056,28 @@ function renderExerciseProgress(){
 let _editPrefill=null,_editBackup=null;
 let _extraExercises=[],_extraIdCounter=0;
 
+// ── Référence "semaine précédente" pour la comparaison de la séance du jour ──
+// Cherche en priorité une séance datant de 5 à 16 jours (= la semaine d'avant).
+// À défaut, prend la séance précédente la plus proche (mieux que rien).
+function getRefPerf(exName, beforeDate){
+  const data=getData();
+  const dref=new Date(beforeDate+'T12:00:00');
+  const dates=Object.keys(data).filter(k=>k<beforeDate).sort().reverse();
+  let fallback=null;
+  for(const k of dates){
+    const ex=(data[k].exercises||[]).find(e=>e.name===exName);
+    if(!ex)continue;
+    const sets=ex.setData&&ex.setData.length?ex.setData:
+      (ex.sets?Array.from({length:ex.sets},()=>({reps:ex.reps||0,weight:ex.weight||0,myoreps:''})):null);
+    if(!sets||!sets.length)continue;
+    const daysAgo=Math.round((dref-new Date(k+'T12:00:00'))/86400000);
+    const rec={date:k,sets,daysAgo};
+    if(!fallback)fallback=rec;
+    if(daysAgo>=5&&daysAgo<=16) return rec; // semaine précédente
+  }
+  return fallback;
+}
+
 // ── Trouve la dernière séance AVANT beforeDate qui contient exName ──
 function getLastPerf(exName, beforeDate){
   const data=getData();
@@ -2063,71 +2097,87 @@ function getLastPerf(exName, beforeDate){
   return null;
 }
 
-// ── Recalcule et affiche le delta quand l'utilisateur change une valeur ──
-function updateDelta(el){
-  const row=el.closest('.set-row');
+// ── Comparaison vs semaine précédente : couleur d'un champ ──
+// vert = meilleur, rouge = moins bien, violet = égal, rien si vide ou pas de référence
+function _fbClass(cur,ref){
+  if(!ref) return '';   // pas de perf semaine passée → pas de couleur
+  if(!cur) return '';   // champ vide → on laisse le fantôme gris
+  if(cur>ref) return 'fb-up';
+  if(cur<ref) return 'fb-down';
+  return 'fb-eq';
+}
+// Met à jour bordures (poids/reps) + tonnage de la série quand l'utilisateur saisit
+function updateSetFeedback(el){
+  const row=el.closest('.set-fb');
   if(!row)return;
-  const deltaEl=row.querySelector('.ref-delta');
-  if(!deltaEl)return;
   const refW=parseFloat(row.dataset.refW)||0;
   const refReps=parseFloat(row.dataset.refReps)||0;
-  const curW=parseFloat(row.querySelector('[data-field="weight"]')?.value)||0;
-  const curReps=parseFloat(row.querySelector('[data-field="reps"]')?.value)||0;
-  if(!refW&&!refReps){deltaEl.textContent='';deltaEl.className='ref-delta neutral';return;}
-  // Priorité au poids, sinon aux reps
-  let delta, unit;
-  if(refW>0){
-    delta=curW-refW;
-    unit='kg';
-  } else {
-    delta=curReps-refReps;
-    unit='rep';
-  }
-  if(delta===0||(!curW&&!curReps)){
-    deltaEl.textContent='=';
-    deltaEl.className='ref-delta neutral';
-  } else if(delta>0){
-    deltaEl.textContent='+'+(Number.isInteger(delta)?delta:delta.toFixed(1))+unit;
-    deltaEl.className='ref-delta better';
-  } else {
-    deltaEl.textContent=(Number.isInteger(delta)?delta:delta.toFixed(1))+unit;
-    deltaEl.className='ref-delta worse';
+  const refMyo=myorepsTotal(row.dataset.refMyo||'');
+  const wIn=row.querySelector('[data-field="weight"]');
+  const rIn=row.querySelector('[data-field="reps"]');
+  const mIn=row.querySelector('[data-field="myoreps"]');
+  const w=parseFloat(wIn&&wIn.value)||0;
+  const r=parseInt(rIn&&rIn.value)||0;
+  const myo=myorepsTotal(mIn&&mIn.value||'');
+  const active=r>0;   // reps=0 → pas de série
+  if(wIn){ wIn.classList.remove('fb-up','fb-down','fb-eq'); const c=active?_fbClass(w,refW):''; if(c)wIn.classList.add(c); }
+  if(rIn){ rIn.classList.remove('fb-up','fb-down','fb-eq'); const c=active?_fbClass(r,refReps):''; if(c)rIn.classList.add(c); }
+  const tEl=row.querySelector('.set-ton');
+  if(tEl){
+    if(!active){ tEl.className='set-ton'; tEl.innerHTML='<span class="set-ton-lbl">Tonnage</span>—'; }
+    else{
+      const ton=Math.round(w*(r+myo));
+      const refTon=refW*(refReps+refMyo);
+      tEl.className='set-ton '+(_fbClass(ton,refTon)||'');
+      tEl.innerHTML='<span class="set-ton-lbl">Tonnage</span>'+ton+' kg';
+    }
   }
 }
+// Recolore tous les champs déjà remplis d'un conteneur (au chargement / re-render)
+function _refreshAllFeedback(scope){
+  const root=scope||document.getElementById('prog-preview-box');
+  if(!root)return;
+  root.querySelectorAll('.set-fb').forEach(row=>{
+    const inp=row.querySelector('[data-field="reps"]')||row.querySelector('[data-field="weight"]');
+    if(inp) updateSetFeedback(inp);
+  });
+}
+// Conserve l'ancien nom (au cas où) → redirige vers le nouveau système
+function updateDelta(el){ updateSetFeedback(el); }
 
-function setRowHTML(bi,key,sn,defaultReps,defaultWeight,defaultMyo,refReps,refW){
-  const hasRef=(refW!=null&&refW!=='')||(refReps!=null&&refReps!=='');
+// valReps/valWeight/valMyo = valeurs RÉELLES (seulement la séance d'aujourd'hui)
+// refReps/refW/refMyo = perfs semaine précédente → fantôme gris (placeholder) + comparaison
+function setRowHTML(bi,key,sn,valReps,valWeight,valMyo,refReps,refW,refMyo){
   const refRepsVal=parseFloat(refReps)||0;
   const refWVal=parseFloat(refW)||0;
-  const refAttr=hasRef?` data-ref-reps="${refRepsVal}" data-ref-w="${refWVal}"`:'';
-  const refBadge=hasRef?`<div class="ref-val">${refWVal>0?refWVal+'kg':''}${refWVal>0&&refRepsVal>0?' × ':''}${refRepsVal>0?refRepsVal+'r':''}</div><div class="ref-delta neutral"></div>`:'';
-  return `<div class="set-row" data-set="${sn}"${refAttr}>
+  const phW=refWVal>0?refWVal:0;
+  const phR=refRepsVal>0?refRepsVal:10;
+  return `<div class="set-row set-fb" data-set="${sn}" data-ref-reps="${refRepsVal}" data-ref-w="${refWVal}" data-ref-myo="${refMyo||''}">
     <div class="set-row-title">Série ${sn}</div>
     <div class="set-row-fields">
-      <div class="sqe-g"><label>Poids kg</label><input type="number" value="${defaultWeight||''}" placeholder="0" min="0" step=".5" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="weight" oninput="updateDelta(this)"></div>
-      <div class="sqe-g"><label>Reps</label><input type="number" value="${defaultReps||''}" placeholder="10" min="1" max="100" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="reps" oninput="updateDelta(this)"></div>
-      <div class="sqe-g"><label>Myoreps</label><input type="text" value="${defaultMyo||''}" placeholder="5+4+3" class="wide" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="myoreps"></div>
-      ${hasRef?`<div class="set-ref">${refBadge}</div>`:''}
+      <div class="sqe-g"><label>Poids kg</label><input type="number" value="${valWeight||''}" placeholder="${phW}" min="0" step=".5" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="weight" oninput="updateSetFeedback(this)"></div>
+      <div class="sqe-g"><label>Reps</label><input type="number" value="${valReps||''}" placeholder="${phR}" min="0" max="100" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="reps" oninput="updateSetFeedback(this)"></div>
+      <div class="sqe-g"><label>Myoreps</label><input type="text" value="${valMyo||''}" placeholder="5+4+3" class="wide" data-block="${bi}" data-ex="${key}" data-set="${sn}" data-field="myoreps" oninput="updateSetFeedback(this)"></div>
+      <div class="set-ton"><span class="set-ton-lbl">Tonnage</span>—</div>
     </div>
   </div>`;
 }
 
 function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
   const currentDate=getDateKey();
-  const lastPerf=getLastPerf(ex.name,currentDate);
+  const lastPerf=getRefPerf(ex.name,currentDate);
   // Le nb de séries suit le PROGRAMME (ex.sets), sans jamais masquer des séries déjà saisies
   const n=Math.max(ex.sets||0, prefillSets?prefillSets.length:0)||4;
 
   const rows=Array.from({length:n},(_,i)=>{
-    const ps=prefillSets?prefillSets[i]:null;
-    const ref=lastPerf?(lastPerf.sets[i]||lastPerf.sets[lastPerf.sets.length-1]):null;
-    const defReps=ps?ps.reps:(ref?ref.reps:(ex.reps||10));
-    const defW=ps?ps.weight:(ref?ref.weight:'');
-    const defMyo=ps?ps.myoreps||'':(ref?ref.myoreps||'':'');
-    return setRowHTML(bi,key,i+1,defReps,defW,defMyo,ref?ref.reps:null,ref?ref.weight:null);
+    const ps=prefillSets?prefillSets[i]:null;             // valeurs RÉELLES (séance d'aujourd'hui)
+    const ref=lastPerf?(lastPerf.sets[i]||lastPerf.sets[lastPerf.sets.length-1]):null; // semaine passée → fantôme
+    return setRowHTML(bi,key,i+1,
+      ps?ps.reps:'', ps?ps.weight:'', ps?ps.myoreps||'':'',
+      ref?ref.reps:null, ref?ref.weight:null, ref?ref.myoreps||'':'');
   }).join('');
 
-  const banner=lastPerf?`<div class="last-perf-banner">📅 Dernière séance : <strong>il y a ${lastPerf.daysAgo}j</strong> (${lastPerf.date}) — valeurs pré-remplies · modifie pour voir le delta</div>`:'';
+  const banner=lastPerf?`<div class="last-perf-banner">📅 Semaine précédente : <strong>il y a ${lastPerf.daysAgo}j</strong> (${lastPerf.date}) — affichée en gris dans les cases · vert = mieux, rouge = moins bien, violet = égal</div>`:'';
   const reco=_recoBanner(ex.name);
 
   const setsCountId=`sets-count-${bi}-${key}`;
@@ -2268,9 +2318,10 @@ function _rebuildSetRows(bi,key,n){
   for(let i=0;i<n;i++){
     const ev=existingVals[i]||{};
     const ref=lastPerf?(lastPerf.sets[i]||lastPerf.sets[lastPerf.sets.length-1]):null;
-    html+=setRowHTML(bi,key,i+1,ev.reps||'',ev.weight||'',ev.myoreps||'',ref?ref.reps:null,ref?ref.weight:null);
+    html+=setRowHTML(bi,key,i+1,ev.reps||'',ev.weight||'',ev.myoreps||'',ref?ref.reps:null,ref?ref.weight:null,ref?ref.myoreps||'':'');
   }
   container.innerHTML=html;
+  _refreshAllFeedback(container);
 }
 
 // ── Vérifie si l'exercice constitue un PR (record de poids) ──
@@ -2339,66 +2390,53 @@ function renderProgPreview(){
         </div>`;
     } else if(btype==='biset'||btype==='triset'){
       const isTriset=btype==='triset';
-      const groupColor=isTriset?'var(--accent4)':'var(--accent3)';
       const groupCls=isTriset?'triset-group':'biset-group';
       const labelCls=isTriset?'triset':'biset';
       const labelTxt=isTriset?'Triset':'Biset';
-      // On ne garde que les exercices RÉELLEMENT nommés, mais on conserve leur index d'origine
-      // (data-ex DOIT correspondre à l'index dans block.exercises pour la sauvegarde)
+      // On ne garde que les exercices RÉELLEMENT nommés, en conservant leur index d'origine
       const named=exs.map((ex,ei)=>({ex,ei})).filter(o=>o.ex&&o.ex.name);
       if(!named.length) return '';
-      // Nombre de séries = UNIFORME pour tout le groupe → chaque exercice apparaît à CHAQUE série
-      // Suit le PROGRAMME (ex.sets) sans masquer des séries déjà saisies
-      const nSets=Math.max(1,...named.map(({ex})=>{
-        const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
-        return Math.max(ex.sets||0, pf?pf.length:0)||4;
-      }));
       const currentDate=getDateKey();
-      const exLastPerfs=named.map(({ex})=>getLastPerf(ex.name,currentDate));
-      const setsCtrlId=`bisets-ctrl-${bi}`;
-      // Build sets rows grouped par série — TOUS les exercices à chaque série
-      const setsHTML=Array.from({length:nSets},(_,si)=>{
+      const exLastPerfs=named.map(({ex})=>getRefPerf(ex.name,currentDate));
+      // Nb de séries PAR EXERCICE (suit le programme, sans masquer des séries déjà saisies)
+      const exCounts=named.map(({ex},k)=>{
+        const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
+        return Math.max(ex.sets||0, pf?pf.length:0)||1;
+      });
+      const nRows=Math.max(1,...exCounts);
+      // Build sets rows : à la série N, on n'affiche QUE les exercices qui ont ≥ N séries
+      const setsHTML=Array.from({length:nRows},(_,si)=>{
         const sn=si+1;
         const exLines=named.map(({ex,ei},k)=>{
+          if(si>=exCounts[k]) return ''; // cet exercice n'a pas cette série → on ne l'affiche pas
           const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
-          const ps=pf?pf[si]:null;
+          const ps=pf?pf[si]:null;                                  // valeurs réelles d'aujourd'hui
           const lp=exLastPerfs[k];
-          const ref=lp?(lp.sets[si]||lp.sets[lp.sets.length-1]):null;
-          const defW=ps?ps.weight:(ref?ref.weight:'');
-          const defR=ps?ps.reps:(ref?ref.reps:(ex.reps||10));
-          const defM=ps?ps.myoreps||'':(ref?ref.myoreps||'':'');
-          const hasRef=ref&&((ref.weight!=null&&ref.weight!=='')||(ref.reps!=null&&ref.reps!==''));
+          const ref=lp?(lp.sets[si]||lp.sets[lp.sets.length-1]):null; // semaine passée → fantôme
           const refRepsVal=parseFloat(ref?.reps)||0;
           const refWVal=parseFloat(ref?.weight)||0;
-          const refAttr=hasRef?` data-ref-reps="${refRepsVal}" data-ref-w="${refWVal}"`:'';
-          const refBadge=hasRef?`<div class="set-ref"><div class="ref-val">${refWVal>0?refWVal+'kg':''}${refWVal>0&&refRepsVal>0?' × ':''}${refRepsVal>0?refRepsVal+'r':''}</div><div class="ref-delta neutral"></div></div>`:'';
+          const refMyo=ref?ref.myoreps||'':'';
           const color=getMuscleColor(ex.name);
-          return `<div class="biset-ex-line"${refAttr}>
+          return `<div class="biset-ex-line set-fb" data-ref-reps="${refRepsVal}" data-ref-w="${refWVal}" data-ref-myo="${refMyo}">
             <span class="biset-ex-tag" style="color:${color}">${ex.name}</span>
             <div class="biset-ex-inputs">
-            <div class="sqe-g"><label>Poids kg</label><input type="number" value="${defW}" placeholder="0" min="0" step=".5" data-block="${bi}" data-ex="${ei}" data-set="${sn}" data-field="weight" oninput="updateDelta(this)"></div>
-            <div class="sqe-g"><label>Reps</label><input type="number" value="${defR}" placeholder="10" min="1" max="100" data-block="${bi}" data-ex="${ei}" data-set="${sn}" data-field="reps" oninput="updateDelta(this)"></div>
-            <div class="sqe-g"><label>Myoreps</label><input type="text" value="${defM}" placeholder="5+4+3" class="wide" data-block="${bi}" data-ex="${ei}" data-set="${sn}" data-field="myoreps"></div>
-            ${refBadge}
+            <div class="sqe-g"><label>Poids kg</label><input type="number" value="${ps?ps.weight:''}" placeholder="${refWVal>0?refWVal:0}" min="0" step=".5" data-block="${bi}" data-ex="${ei}" data-set="${sn}" data-field="weight" oninput="updateSetFeedback(this)"></div>
+            <div class="sqe-g"><label>Reps</label><input type="number" value="${ps?ps.reps:''}" placeholder="${refRepsVal>0?refRepsVal:10}" min="0" max="100" data-block="${bi}" data-ex="${ei}" data-set="${sn}" data-field="reps" oninput="updateSetFeedback(this)"></div>
+            <div class="sqe-g"><label>Myoreps</label><input type="text" value="${ps?ps.myoreps||'':''}" placeholder="5+4+3" class="wide" data-block="${bi}" data-ex="${ei}" data-set="${sn}" data-field="myoreps" oninput="updateSetFeedback(this)"></div>
+            <div class="set-ton"><span class="set-ton-lbl">Tonnage</span>—</div>
             </div>
           </div>`;
-        }).join('');
+        }).filter(Boolean).join('');
         return `<div class="biset-set-block"><div class="biset-set-title">Série ${sn}</div>${exLines}</div>`;
       }).join('');
       const banners=named.map(({ex},k)=>{
         const lp=exLastPerfs[k];
-        const lpb=lp?`<div class="last-perf-banner" style="margin-bottom:4px">📅 <strong>${ex.name}</strong> — il y a ${lp.daysAgo}j</div>`:'';
+        const lpb=lp?`<div class="last-perf-banner" style="margin-bottom:4px">📅 <strong>${ex.name}</strong> — semaine passée (il y a ${lp.daysAgo}j) en gris</div>`:'';
         return lpb+_recoBanner(ex.name);
       }).filter(Boolean).join('');
       return `<div class="${groupCls}">
-        <div class="group-label ${labelCls}">${labelTxt} — ${named.map(o=>o.ex.name).join(' + ')}</div>
+        <div class="group-label ${labelCls}">${labelTxt} — ${named.map(o=>o.ex.name+(o.ex.sets?' ('+o.ex.sets+' séries)':'')).join(' + ')}</div>
         ${banners}
-        <div class="sets-ctrl">
-          <span class="sets-ctrl-lbl">Séries :</span>
-          <button class="sets-btn" onclick="changeGroupSets(${bi},-1,'${setsCtrlId}')">−</button>
-          <input class="sets-count-in" id="${setsCtrlId}" type="number" value="${nSets}" min="1" max="20">
-          <button class="sets-btn" onclick="changeGroupSets(${bi},1,'${setsCtrlId}')">+</button>
-        </div>
         <div class="biset-sets-wrap" id="biset-sets-${bi}">${setsHTML}</div>
       </div>`;
     } else {
@@ -2447,6 +2485,9 @@ function renderProgPreview(){
   </div>`;
   // Re-render les exercices extra si on revient sur la même date
   if(_extraExercises.length) _renderExtraExercises();
+
+  // Colore les valeurs déjà saisies + calcule les tonnages (comparaison semaine passée)
+  _refreshAllFeedback(box);
 
   // ── Vérification : tous les exercices du programme sont bien dans la séance ──
   _verifySessionExercises(dayProg);
@@ -2506,7 +2547,7 @@ function saveFromPreview(){
         const myoInp=document.querySelector(`[data-block="${bi}"][data-ex="${key}"][data-set="${sn}"][data-field="myoreps"]`);
         const weight=parseFloat(weightInp?.value)||0;
         const myoreps=myoInp?.value||'';
-        if(reps>0||weight>0) setData.push({reps,weight,myoreps});
+        if(reps>0) setData.push({reps,weight,myoreps}); // reps=0 → pas de série
       });
       if(!setData.length)return;
       const exObj={
@@ -2531,7 +2572,7 @@ function saveFromPreview(){
       const reps=parseInt(inp.value)||0;
       const wInp=document.querySelector(`[data-block="${bi}"][data-ex="0"][data-set="${sn}"][data-field="weight"]`);
       const mInp=document.querySelector(`[data-block="${bi}"][data-ex="0"][data-set="${sn}"][data-field="myoreps"]`);
-      if(reps>0||parseFloat(wInp?.value)>0) setData.push({reps,weight:parseFloat(wInp?.value)||0,myoreps:mInp?.value||''});
+      if(reps>0) setData.push({reps,weight:parseFloat(wInp?.value)||0,myoreps:mInp?.value||''}); // reps=0 → pas de série
     });
     if(!setData.length)return;
     newExs.push({id:id++,name:ex.name,sets:setData.length,reps:setData[0].reps,weight:setData[0].weight,myoreps:setData[0].myoreps,setData});
