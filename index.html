@@ -181,12 +181,24 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 .sqe-g input.fb-up   { border-color:#43e97b; box-shadow:0 0 0 1px #43e97b; }
 .sqe-g input.fb-down { border-color:#e74c3c; box-shadow:0 0 0 1px #e74c3c; }
 .sqe-g input.fb-eq   { border-color:#a78bfa; box-shadow:0 0 0 1px #a78bfa; }
+/* Pastille temps de repos */
+.rest-pill { display:inline-flex; align-items:center; gap:4px; background:rgba(108,99,255,.15); border:1px solid rgba(108,99,255,.4); color:var(--accent); border-radius:999px; padding:3px 10px; font-size:.74rem; font-weight:700; cursor:pointer; white-space:nowrap; }
+.rest-pill:hover { background:rgba(108,99,255,.28); }
 /* Tonnage par série */
 .set-ton { font-size:.72rem; font-weight:800; color:var(--muted); align-self:flex-end; padding-bottom:7px; white-space:nowrap; }
 .set-ton .set-ton-lbl { font-size:.58rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; display:block; }
 .set-ton.fb-up   { color:#43e97b; }
 .set-ton.fb-down { color:#e74c3c; }
 .set-ton.fb-eq   { color:#a78bfa; }
+/* Onglet Aujourd'hui */
+.today-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+.today-field label { display:block; font-size:.74rem; color:var(--muted); font-weight:700; margin-bottom:5px; }
+.today-input-row { display:flex; gap:6px; }
+.today-input-row input { flex:1; min-width:0; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:1rem; font-weight:700; }
+.macro-strip { display:flex; gap:8px; flex-wrap:wrap; }
+.macro-chip { flex:1; min-width:90px; background:var(--card3); border-left:3px solid var(--c); border-radius:9px; padding:8px 11px; }
+.macro-chip b { display:block; font-size:1.1rem; font-weight:800; color:var(--c); }
+.macro-chip span { font-size:.7rem; color:var(--muted); font-weight:600; }
 
 /* SEANCE PER-SET ROWS */
 .ex-block-header { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
@@ -513,10 +525,9 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   </div>
   <div class="dsb-nav">
     <div class="dsb-section-lbl">Navigation</div>
-    <button class="dsb-item" onclick="deskNav('overview',this)"><span class="nav-dot" style="background:#6c63ff"></span>Vue d'ensemble</button>
-    <button class="dsb-item active" onclick="deskNav('exercices',this)"><span class="nav-dot" style="background:#43e97b"></span>Exercices</button>
+    <button class="dsb-item active" onclick="deskNav('today',this)"><span class="nav-dot" style="background:#6c63ff"></span>Aujourd'hui</button>
+    <button class="dsb-item" onclick="deskNav('exercices',this)"><span class="nav-dot" style="background:#43e97b"></span>Programme</button>
     <button class="dsb-item" onclick="deskNav('calories',this)"><span class="nav-dot" style="background:#f7971e"></span>Calories</button>
-    <button class="dsb-item" onclick="deskNav('steps',this)"><span class="nav-dot" style="background:#6c63ff"></span>Pas</button>
     <button class="dsb-item" onclick="deskNav('poids',this)"><span class="nav-dot" style="background:#ff6584"></span>Poids</button>
     <button class="dsb-item" onclick="deskNav('analyse',this)"><span class="nav-dot" style="background:#a78bfa"></span>Analyse</button>
     <div class="dsb-section-lbl" style="margin-top:8px">Données</div>
@@ -557,10 +568,9 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   </div>
   <div class="mobile-nav-items">
     <div class="mobile-week-label">Navigation</div>
-    <button class="mobile-nav-item" onclick="mobileNav('overview',this)"><span class="nav-dot" style="background:#6c63ff"></span>Vue d'ensemble</button>
-    <button class="mobile-nav-item active" onclick="mobileNav('exercices',this)"><span class="nav-dot" style="background:#43e97b"></span>Exercices</button>
+    <button class="mobile-nav-item active" onclick="mobileNav('today',this)"><span class="nav-dot" style="background:#6c63ff"></span>Aujourd'hui</button>
+    <button class="mobile-nav-item" onclick="mobileNav('exercices',this)"><span class="nav-dot" style="background:#43e97b"></span>Programme</button>
     <button class="mobile-nav-item" onclick="mobileNav('calories',this)"><span class="nav-dot" style="background:#f7971e"></span>Calories</button>
-    <button class="mobile-nav-item" onclick="mobileNav('steps',this)"><span class="nav-dot" style="background:#6c63ff"></span>Pas</button>
     <button class="mobile-nav-item" onclick="mobileNav('poids',this)"><span class="nav-dot" style="background:#ff6584"></span>Poids</button>
     <button class="mobile-nav-item" onclick="mobileNav('analyse',this)"><span class="nav-dot" style="background:#a78bfa"></span>Analyse</button>
     <div class="mobile-week-label" style="margin-top:8px">Données</div>
@@ -578,10 +588,9 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 </div>
 
 <nav>
-  <button class="tab" onclick="showTab('overview',this)"><span class="dot" style="background:#6c63ff"></span>Vue d'ensemble</button>
+  <button class="tab active" onclick="showTab('today',this)"><span class="dot" style="background:#6c63ff"></span>Aujourd'hui</button>
+  <button class="tab" onclick="showTab('exercices',this)"><span class="dot" style="background:#43e97b"></span>Programme</button>
   <button class="tab" onclick="showTab('calories',this)"><span class="dot" style="background:#f7971e"></span>Calories</button>
-  <button class="tab active" onclick="showTab('exercices',this)"><span class="dot" style="background:#43e97b"></span>Exercices</button>
-  <button class="tab" onclick="showTab('steps',this)"><span class="dot" style="background:#6c63ff"></span>Pas</button>
   <button class="tab" onclick="showTab('poids',this)"><span class="dot" style="background:#ff6584"></span>Poids</button>
   <button class="tab" onclick="showTab('analyse',this)"><span class="dot" style="background:#a78bfa"></span>Analyse</button>
 </nav>
@@ -590,18 +599,63 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <main>
 
-<!-- ===== OVERVIEW ===== -->
-<div id="sec-overview" class="section">
-  <div class="overview-grid" id="overviewCards"></div>
+<!-- ===== AUJOURD'HUI ===== -->
+<div id="sec-today" class="section active">
 
+  <!-- SAISIE DU JOUR -->
   <div class="card">
-    <h2>🏋️ Séances musculaires — semaine en cours</h2>
-    <div id="weeklyMuscleRecap" class="weekly-recap"></div>
+    <h2>📆 Mes infos du jour</h2>
+    <div class="today-grid">
+      <div class="today-field">
+        <label>⚖️ Poids (kg)</label>
+        <div class="today-input-row">
+          <input type="number" id="t-poids" placeholder="69.0" min="30" max="250" step=".1" onkeydown="if(event.key==='Enter')saveTodayField('poids')">
+          <button class="btn btn-primary btn-sm" onclick="saveTodayField('poids')">OK</button>
+        </div>
+      </div>
+      <div class="today-field">
+        <label>🔥 Calories (kcal)</label>
+        <div class="today-input-row">
+          <input type="number" id="t-cal" placeholder="2500" min="0" max="8000" onkeydown="if(event.key==='Enter')saveTodayField('cal')">
+          <button class="btn btn-primary btn-sm" onclick="saveTodayField('cal')">OK</button>
+        </div>
+      </div>
+      <div class="today-field">
+        <label>👣 Pas</label>
+        <div class="today-input-row">
+          <input type="number" id="t-steps" placeholder="15000" min="0" onkeydown="if(event.key==='Enter')saveTodayField('steps')">
+          <button class="btn btn-primary btn-sm" onclick="saveTodayField('steps')">OK</button>
+        </div>
+      </div>
+    </div>
+    <div id="today-macros" style="margin-top:14px"></div>
+    <div style="margin-top:10px">
+      <button class="btn btn-outline btn-sm" id="steps-more-btn" onclick="toggleStepsHistory()">👣 Voir mes pas des jours précédents</button>
+      <div id="today-steps-history" style="display:none;margin-top:12px">
+        <div class="stats-row">
+          <div class="stat-pill"><div class="val" id="t-steps-avg" style="color:var(--accent3)">0</div><div class="lbl">Moyenne 7j</div></div>
+          <div class="stat-pill"><div class="val" id="t-steps-best" style="color:var(--accent4)">0</div><div class="lbl">Record</div></div>
+          <div class="stat-pill"><div class="val" id="t-steps-streak" style="color:var(--accent2)">0</div><div class="lbl">Jours ≥ objectif (14j)</div></div>
+        </div>
+        <div class="card" style="margin-top:8px"><h2>📊 Pas — 14 jours</h2><div class="chart-wrap"><canvas id="todayStepsChart"></canvas></div></div>
+      </div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>📈 Progression — 30 jours</h2>
-    <div class="chart-wrap tall"><canvas id="overviewChart"></canvas></div>
+  <!-- SÉANCE DU JOUR -->
+  <div id="missed-sessions-box"></div>
+  <div id="prog-preview-box"></div>
+
+  <!-- NOTES DE SÉANCE -->
+  <div class="card" style="margin-bottom:14px;padding:14px 18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin-bottom:0">📝 Notes de séance</h2>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('rest-timer-widget').style.display='block'" style="border-color:var(--accent);color:var(--accent)">⏱️ Timer repos</button>
+        <button class="btn btn-outline btn-sm" onclick="saveSessionNote()">💾 Sauvegarder</button>
+      </div>
+    </div>
+    <textarea class="notes-area" id="session-notes" placeholder="Ressenti, conditions, ajustements…" oninput="autoSaveNote(this)"></textarea>
   </div>
 </div>
 
@@ -696,32 +750,15 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   </div>
 </div>
 
-<!-- ===== EXERCICES ===== -->
-<div id="sec-exercices" class="section active">
+<!-- ===== EXERCICES / PROGRAMME ===== -->
+<div id="sec-exercices" class="section">
   <div class="subtab-bar">
-    <button class="subtab active" onclick="showSubtab('seance',this)">🏋️ Séance du jour</button>
-    <button class="subtab" onclick="showSubtab('programme',this)">📋 Mon Programme</button>
+    <button class="subtab active" onclick="showSubtab('programme',this)">📋 Mon Programme</button>
+    <button class="subtab" onclick="showSubtab('seance',this)">📊 Suivi séance</button>
   </div>
 
-  <!-- SÉANCE DU JOUR -->
-  <div id="sub-seance" class="subsection active">
-    <div id="missed-sessions-box"></div>
-    <div id="prog-preview-box"></div>
-
-    <!-- NOTES DE SÉANCE -->
-    <div class="card" style="margin-bottom:14px;padding:14px 18px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <h2 style="margin-bottom:0">📝 Notes de séance</h2>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span style="font-size:.75rem;color:var(--muted)" id="timer-btn-area">
-            <button class="btn btn-outline btn-sm" onclick="document.getElementById('rest-timer-widget').style.display='block'" style="border-color:var(--accent);color:var(--accent)">⏱️ Timer repos</button>
-          </span>
-          <button class="btn btn-outline btn-sm" onclick="saveSessionNote()">💾 Sauvegarder</button>
-        </div>
-      </div>
-      <textarea class="notes-area" id="session-notes" placeholder="Ressenti, conditions, ajustements…" oninput="autoSaveNote(this)"></textarea>
-    </div>
-
+  <!-- SUIVI SÉANCE (stats & graphiques) -->
+  <div id="sub-seance" class="subsection">
     <div class="stats-row">
       <div class="stat-pill"><div class="val" id="ex-tonnage-today" style="color:var(--accent3)">0</div><div class="lbl">kg tonnage</div></div>
       <div class="stat-pill"><div class="val" id="ex-sets-today" style="color:var(--accent4)">0</div><div class="lbl">Séries totales</div></div>
@@ -773,7 +810,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   </div>
 
   <!-- MON PROGRAMME -->
-  <div id="sub-programme" class="subsection">
+  <div id="sub-programme" class="subsection active">
 
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
@@ -1426,7 +1463,7 @@ function importSessionsToProgram(){
         const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
         if(best) reps=+best[0];
       }
-      return {ex:{name:e.name,sets,reps}, gtype:e.group_type||null, gid:e.group_id||null};
+      return {ex:{name:e.name,sets,reps,rest:e.rest!=null?e.rest:90}, gtype:e.group_type||null, gid:e.group_id||null};
     });
     totalEx+=mapped.length;
 
@@ -1851,6 +1888,23 @@ function renderCalories(){
   if(profile.sex) calcBMR(true); // silent recalc
 }
 
+// Calcule les macros à partir du profil BMR sauvegardé (réutilisé dans l'onglet Aujourd'hui)
+function computeMacros(){
+  const p=getBmrProfile();
+  if(!(p.sex&&p.age&&p.height&&p.weight&&p.activity)) return null;
+  const mb=Math.round((10*p.weight)+(6.25*p.height)-(5*p.age)+(p.sex==='m'?5:-161));
+  const tdee=Math.round(mb*p.activity);
+  const goal=parseInt(p.goal)||0;
+  const target=tdee+goal;
+  const objectif=(getProfile().objectif)||'';
+  const isCut=goal<0||objectif==='gras';
+  const proteinRatio=isCut?2.2:2.0;
+  const protein=Math.round(p.weight*proteinRatio);
+  const fat=Math.round(p.weight*1);
+  const carbs=Math.max(0,Math.round((target-protein*4-fat*9)/4));
+  return {target,protein,carbs,fat,proteinRatio,isCut};
+}
+
 function calcBMR(silent=false){
   const sex=document.getElementById('bmr-sex').value;
   const age=parseFloat(document.getElementById('bmr-age').value);
@@ -1868,18 +1922,20 @@ function calcBMR(silent=false){
   document.getElementById('bmr-target').textContent=target.toLocaleString('fr')+' kcal';
   const goalLabels={0:'= Maintien du poids',250:'= Léger surplus (+250)',500:'= Surplus prise de masse (+500)','-300':'= Déficit léger (−300)','-500':'= Déficit sèche (−500)'};
   document.getElementById('bmr-target-label').textContent=goalLabels[goal]||'kcal/jour';
-  // Macros suggérés
-  const isCutting = goal < 0;
-  const proteinRatio = isCutting ? 2.2 : 2.0;
-  const protein = Math.round(w * proteinRatio);   // 2.0g/kg prise de masse, 2.2g/kg sèche
-  const fat     = Math.round(w * 1);              // 1g/kg toujours
+  // Macros suggérés — protéines selon l'objectif (sèche/perte de gras = plus de protéines)
+  const objectif=(getProfile().objectif)||'';
+  const isCutting = goal < 0 || objectif==='gras';
+  const proteinRatio = isCutting ? 2.2 : 2.0; // g/kg de poids de corps
+  const protein = Math.round(w * proteinRatio);
+  const fat     = Math.round(w * 1);              // 1g/kg
   const carbs   = Math.round((target - protein*4 - fat*9) / 4);
   const carbsDisplay = Math.max(0, carbs);
+  const pPct=Math.round(protein*4/target*100), cPct=Math.round(carbsDisplay*4/target*100), fPct=Math.round(fat*9/target*100);
   document.getElementById('bmr-macro-grid').innerHTML=`
-    <div class="bmr-card"><div class="bv" style="color:#43e97b">${protein}g</div><div class="bl">Protéines (${proteinRatio}g/kg)</div></div>
-    <div class="bmr-card"><div class="bv" style="color:#f7971e">${carbsDisplay}g</div><div class="bl">Glucides</div></div>
-    <div class="bmr-card"><div class="bv" style="color:#a78bfa">${fat}g</div><div class="bl">Lipides (1g/kg)</div></div>
-    <div class="bmr-card"><div class="bv" style="color:var(--accent4)">${target.toLocaleString('fr')}</div><div class="bl">kcal objectif</div></div>
+    <div class="bmr-card"><div class="bv" style="color:#43e97b">${protein}g</div><div class="bl">Protéines · ${proteinRatio}g/kg · ${pPct}%</div></div>
+    <div class="bmr-card"><div class="bv" style="color:#f7971e">${carbsDisplay}g</div><div class="bl">Glucides · ${cPct}%</div></div>
+    <div class="bmr-card"><div class="bv" style="color:#a78bfa">${fat}g</div><div class="bl">Lipides · 1g/kg · ${fPct}%</div></div>
+    <div class="bmr-card"><div class="bv" style="color:var(--accent4)">${target.toLocaleString('fr')}</div><div class="bl">kcal objectif (${isCutting?'sèche':'prise/maintien'})</div></div>
   `;
   document.getElementById('bmr-result').style.display='block';
   saveBmrProfile({sex,age,height:h,weight:w,activity:act,goal});
@@ -2181,11 +2237,15 @@ function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
   const reco=_recoBanner(ex.name);
 
   const setsCountId=`sets-count-${bi}-${key}`;
+  const restPill=ex.rest>0?`<span class="rest-pill" onclick="startTimer(${ex.rest})" title="Lancer le minuteur">⏱️ repos ${ex.rest}s</span>`:'';
   return `
     ${groupLabel?`<div class="group-label ${groupLabel}" style="color:${groupColor}">${ex.name}</div>`:''}
     <div class="ex-block-header">
       <span class="ex-block-name" style="color:${getMuscleColor(ex.name)}">${ex.name}</span>
-      <span class="muscle-tag" style="background:${getMuscleColor(ex.name)}20;color:${getMuscleColor(ex.name)};align-self:flex-start">${getMuscle(ex.name)}</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="muscle-tag" style="background:${getMuscleColor(ex.name)}20;color:${getMuscleColor(ex.name)};align-self:flex-start">${getMuscle(ex.name)}</span>
+        ${restPill}
+      </div>
     </div>
     ${banner}
     ${reco}
@@ -2434,8 +2494,12 @@ function renderProgPreview(){
         const lpb=lp?`<div class="last-perf-banner" style="margin-bottom:4px">📅 <strong>${ex.name}</strong> — semaine passée (il y a ${lp.daysAgo}j) en gris</div>`:'';
         return lpb+_recoBanner(ex.name);
       }).filter(Boolean).join('');
+      const blockRest=(named.find(o=>o.ex.rest)||{ex:{}}).ex.rest||0;
+      const restLabel=blockRest>0
+        ? `<span class="rest-pill" onclick="startTimer(${blockRest})" title="Lancer le minuteur">⏱️ repos ${blockRest}s</span>`
+        : '';
       return `<div class="${groupCls}">
-        <div class="group-label ${labelCls}">${labelTxt} — ${named.map(o=>o.ex.name+(o.ex.sets?' ('+o.ex.sets+' séries)':'')).join(' + ')}</div>
+        <div class="group-label ${labelCls}" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${labelTxt} ${restLabel}</div>
         ${banners}
         <div class="biset-sets-wrap" id="biset-sets-${bi}">${setsHTML}</div>
       </div>`;
@@ -3178,6 +3242,10 @@ function renderProgBlock(block,bi,dw){
           <label style="font-size:.62rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Reps visées</label>
           <input type="number" placeholder="10" value="${ex.reps||10}" min="1" max="50" style="width:60px" onblur="updateProgEx(${dw},${bi},${ei},'reps',parseInt(this.value)||1)">
         </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:.62rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Repos (s)</label>
+          <input type="number" placeholder="90" value="${ex.rest!=null?ex.rest:''}" min="0" max="600" step="15" style="width:64px" onblur="updateProgEx(${dw},${bi},${ei},'rest',parseInt(this.value)||0)">
+        </div>
       </div>`;
   }).join('');
 
@@ -3224,7 +3292,7 @@ function addProgBlock(dw,type){
   const prog=getProg();
   if(!prog[dw])prog[dw]={label:'',blocks:[]};
   const count=type==='triset'?3:type==='biset'?2:1;
-  prog[dw].blocks.push({type,exercises:Array.from({length:count},()=>({name:'',sets:4,reps:10}))});
+  prog[dw].blocks.push({type,exercises:Array.from({length:count},()=>({name:'',sets:4,reps:10,rest:90}))});
   saveProg(prog);renderDayEditor(dw);
 }
 
@@ -3390,13 +3458,74 @@ function showToast(msg){
 }
 
 // ===================== RENDER ALL =====================
+// ===================== AUJOURD'HUI =====================
+function renderToday(){
+  renderTodayInputs();
+  renderExercises(); // séance du jour (preview + notes + missed) + stats
+}
+function renderTodayInputs(){
+  const data=getData(),date=getDateKey();
+  const d=data[date]||{};
+  const set=(id,v)=>{const e=document.getElementById(id); if(e)e.value=(v!=null?v:'');};
+  set('t-poids',d.poids); set('t-cal',d.kcal_total); set('t-steps',d.steps);
+  // Macros cibles du jour
+  const m=computeMacros();
+  const el=document.getElementById('today-macros');
+  if(el){
+    if(m){
+      const eaten=d.kcal_total||0;
+      el.innerHTML=`<div class="macro-strip">
+        <div class="macro-chip" style="--c:#43e97b"><b>${m.protein} g</b><span>Protéines</span></div>
+        <div class="macro-chip" style="--c:#f7971e"><b>${m.carbs} g</b><span>Glucides</span></div>
+        <div class="macro-chip" style="--c:#a78bfa"><b>${m.fat} g</b><span>Lipides</span></div>
+        <div class="macro-chip" style="--c:var(--accent4)"><b>${eaten?eaten.toLocaleString('fr')+' / ':''}${m.target.toLocaleString('fr')}</b><span>kcal ${m.isCut?'(sèche)':'(prise/maintien)'}</span></div>
+      </div>`;
+    } else {
+      el.innerHTML=`<div style="font-size:.8rem;color:var(--muted)">💡 Renseigne ton profil dans l'onglet <strong>Calories</strong> pour voir tes macros cibles ici.</div>`;
+    }
+  }
+  if(document.getElementById('today-steps-history')&&document.getElementById('today-steps-history').style.display!=='none') renderTodaySteps();
+}
+function saveTodayField(field){
+  const data=getData(),date=getDateKey();
+  if(field==='poids'){const v=parseFloat(document.getElementById('t-poids').value); if(isNaN(v)||v<30){showToast('⚠️ Poids invalide');return;} getOrCreate(data,date).poids=v;}
+  else if(field==='cal'){const v=parseFloat(document.getElementById('t-cal').value); if(isNaN(v)||v<0){showToast('⚠️ Calories invalides');return;} getOrCreate(data,date).kcal_total=Math.round(v);}
+  else if(field==='steps'){const v=parseInt(document.getElementById('t-steps').value); if(isNaN(v)||v<0){showToast('⚠️ Pas invalides');return;} getOrCreate(data,date).steps=v;}
+  saveData(data); silentExport().catch(()=>{});
+  showToast('✅ Enregistré'); renderTodayInputs();
+}
+function toggleStepsHistory(){
+  const p=document.getElementById('today-steps-history'); if(!p)return;
+  const show=p.style.display==='none'; p.style.display=show?'block':'none';
+  const btn=document.getElementById('steps-more-btn');
+  if(btn) btn.textContent=show?'👣 Masquer l\'historique des pas':'👣 Voir mes pas des jours précédents';
+  if(show) renderTodaySteps();
+}
+function renderTodaySteps(){
+  const data=getData();
+  const hist=getLast(14,k=>(data[k]||{}).steps||0);
+  const vals=hist.map(h=>h.value);
+  const last7=vals.slice(-7).filter(v=>v>0);
+  const avg=last7.length?Math.round(last7.reduce((a,b)=>a+b,0)/last7.length):0;
+  const best=Math.max(0,...vals);
+  const streak=vals.filter(v=>v>=STEPS_GOAL).length;
+  const setT=(id,v)=>{const e=document.getElementById(id); if(e)e.textContent=v.toLocaleString('fr');};
+  setT('t-steps-avg',avg); setT('t-steps-best',best); setT('t-steps-streak',streak);
+  destroyChart('todayStepsChart');
+  const cv=document.getElementById('todayStepsChart'); if(!cv)return;
+  charts['todayStepsChart']=new Chart(cv.getContext('2d'),{type:'bar',data:{
+    labels:hist.map(h=>h.label),
+    datasets:[{label:'Pas',data:vals,backgroundColor:vals.map(v=>v>=STEPS_GOAL?'rgba(67,233,123,.7)':'rgba(108,99,255,.6)'),borderRadius:6}]
+  },options:{...BASE,plugins:{...BASE.plugins,legend:{display:false}}}});
+}
+
 function renderAll(){
   const active=document.querySelector('.section.active');
   if(!active)return;
   const id=active.id.replace('sec-','');
-  if(id==='overview')renderOverview();
+  if(id==='today')renderToday();
   else if(id==='calories')renderCalories();
-  else if(id==='exercices')renderExercises();
+  else if(id==='exercices'){renderProgrammeEditor();renderExercises();}
   else if(id==='steps')renderSteps();
   else if(id==='poids')renderPoids();
   else if(id==='analyse')renderAnalyse();
