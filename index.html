@@ -181,6 +181,12 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 .sqe-g input.fb-up   { border-color:#43e97b; box-shadow:0 0 0 1px #43e97b; }
 .sqe-g input.fb-down { border-color:#e74c3c; box-shadow:0 0 0 1px #e74c3c; }
 .sqe-g input.fb-eq   { border-color:#a78bfa; box-shadow:0 0 0 1px #a78bfa; }
+/* Conseil sous chaque exercice */
+.conseil { font-size:.78rem; line-height:1.4; color:var(--text); background:rgba(255,255,255,.03); border-left:3px solid var(--accent); border-radius:6px; padding:6px 10px; margin:4px 0 8px; }
+.conseil-lbl { font-weight:800; margin-right:4px; }
+.biset-advice { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+.biset-adv-item { }
+.biset-adv-name { font-size:.92rem; font-weight:800; }
 /* Pastille temps de repos */
 .rest-pill { display:inline-flex; align-items:center; gap:4px; background:rgba(108,99,255,.15); border:1px solid rgba(108,99,255,.4); color:var(--accent); border-radius:999px; padding:3px 10px; font-size:.74rem; font-weight:700; cursor:pointer; white-space:nowrap; }
 .rest-pill:hover { background:rgba(108,99,255,.28); }
@@ -662,7 +668,14 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 <!-- ===== CALORIES ===== -->
 <div id="sec-calories" class="section">
 
-  <!-- BMR CALCULATOR — EN HAUT -->
+  <!-- MACROS CIBLES — toujours visibles -->
+  <div class="card">
+    <h2>🍽️ Mes macros cibles du jour</h2>
+    <p style="color:var(--muted);font-size:.82rem;margin:-4px 0 12px">Protéines 2 g/kg (2,2 en sèche/perte de gras), lipides 1 g/kg, glucides = le reste. Ajusté selon ton objectif.</p>
+    <div id="cal-macros-card"></div>
+  </div>
+
+  <!-- BMR CALCULATOR -->
   <div class="card">
     <h2>🧮 Calculateur de besoins caloriques</h2>
     <p style="color:var(--muted);font-size:.84rem;margin-bottom:16px">Formule Mifflin-St Jeor — calcule ton métabolisme de base puis ta dépense totale journalière.</p>
@@ -1661,6 +1674,12 @@ function _recoBanner(exName){
   if(!r)return'';
   return `<div class="reco-banner" style="color:${r.col};background:${r.bg}">🧠 ${r.text}</div>`;
 }
+// Conseil sous chaque exercice (format "Conseil : ...")
+function _conseilHTML(exName){
+  const r=recommendExercise(exName,getDateKey());
+  if(!r)return'';
+  return `<div class="conseil" style="border-left-color:${r.col}"><span class="conseil-lbl" style="color:${r.col}">Conseil :</span> ${r.text}</div>`;
+}
 
 function setProfile(field,val){
   const p=getProfile();
@@ -1886,6 +1905,22 @@ function renderCalories(){
   if(profile.activity) document.getElementById('bmr-activity').value=profile.activity;
   if(profile.goal) document.getElementById('bmr-goal').value=profile.goal;
   if(profile.sex) calcBMR(true); // silent recalc
+  // Carte macros toujours visible
+  const mc=document.getElementById('cal-macros-card');
+  if(mc){
+    const m=computeMacros();
+    const date=getDateKey(); const eaten=(getData()[date]||{}).kcal_total||0;
+    if(m){
+      mc.innerHTML=`<div class="macro-strip">
+        <div class="macro-chip" style="--c:#43e97b"><b>${m.protein} g</b><span>Protéines · ${m.proteinRatio} g/kg</span></div>
+        <div class="macro-chip" style="--c:#f7971e"><b>${m.carbs} g</b><span>Glucides</span></div>
+        <div class="macro-chip" style="--c:#a78bfa"><b>${m.fat} g</b><span>Lipides · 1 g/kg</span></div>
+        <div class="macro-chip" style="--c:var(--accent4)"><b>${eaten?eaten.toLocaleString('fr')+' / ':''}${m.target.toLocaleString('fr')}</b><span>kcal ${m.isCut?'(sèche)':'(prise/maintien)'}</span></div>
+      </div>`;
+    } else {
+      mc.innerHTML=`<div style="font-size:.85rem;color:var(--muted)">⚙️ Remplis le calculateur ci-dessous (sexe, âge, taille, poids, activité, objectif) puis clique <strong>Calculer</strong> : tes macros s'afficheront ici automatiquement.</div>`;
+    }
+  }
 }
 
 // Calcule les macros à partir du profil BMR sauvegardé (réutilisé dans l'onglet Aujourd'hui)
@@ -2233,8 +2268,7 @@ function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
       ref?ref.reps:null, ref?ref.weight:null, ref?ref.myoreps||'':'');
   }).join('');
 
-  const banner=lastPerf?`<div class="last-perf-banner">📅 Semaine précédente : <strong>il y a ${lastPerf.daysAgo}j</strong> (${lastPerf.date}) — affichée en gris dans les cases · vert = mieux, rouge = moins bien, violet = égal</div>`:'';
-  const reco=_recoBanner(ex.name);
+  const conseil=_conseilHTML(ex.name);
 
   const setsCountId=`sets-count-${bi}-${key}`;
   const restPill=ex.rest>0?`<span class="rest-pill" onclick="startTimer(${ex.rest})" title="Lancer le minuteur">⏱️ repos ${ex.rest}s</span>`:'';
@@ -2247,8 +2281,7 @@ function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
         ${restPill}
       </div>
     </div>
-    ${banner}
-    ${reco}
+    ${conseil}
     <div class="sets-ctrl">
       <span class="sets-ctrl-lbl">Séries :</span>
       <button class="sets-btn" onclick="changeSets('${bi}','${key}',-1,'${setsCountId}')">−</button>
@@ -2489,18 +2522,21 @@ function renderProgPreview(){
         }).filter(Boolean).join('');
         return `<div class="biset-set-block"><div class="biset-set-title">Série ${sn}</div>${exLines}</div>`;
       }).join('');
-      const banners=named.map(({ex},k)=>{
-        const lp=exLastPerfs[k];
-        const lpb=lp?`<div class="last-perf-banner" style="margin-bottom:4px">📅 <strong>${ex.name}</strong> — semaine passée (il y a ${lp.daysAgo}j) en gris</div>`:'';
-        return lpb+_recoBanner(ex.name);
-      }).filter(Boolean).join('');
+      // En haut du biset : nom de chaque exercice + son conseil (pas de mention "semaine passée")
+      const advice=named.map(({ex})=>{
+        const color=getMuscleColor(ex.name);
+        return `<div class="biset-adv-item">
+          <div class="biset-adv-name" style="color:${color}">${ex.name}</div>
+          ${_conseilHTML(ex.name)}
+        </div>`;
+      }).join('');
       const blockRest=(named.find(o=>o.ex.rest)||{ex:{}}).ex.rest||0;
       const restLabel=blockRest>0
         ? `<span class="rest-pill" onclick="startTimer(${blockRest})" title="Lancer le minuteur">⏱️ repos ${blockRest}s</span>`
         : '';
       return `<div class="${groupCls}">
         <div class="group-label ${labelCls}" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${labelTxt} ${restLabel}</div>
-        ${banners}
+        <div class="biset-advice">${advice}</div>
         <div class="biset-sets-wrap" id="biset-sets-${bi}">${setsHTML}</div>
       </div>`;
     } else {
