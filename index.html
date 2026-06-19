@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Dashboard Fitness — Baptiste</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -543,7 +546,8 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
   <div class="dsb-footer">
     <div class="save-dot" id="cloudDot"></div>
     <span id="cloudStatus">☁️</span>
-    <button onclick="forceSyncAll()" title="Sync" style="background:transparent;border:none;cursor:pointer;color:var(--muted);margin-left:auto;font-size:.85rem" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">↻</button>
+    <span id="app-version" style="margin-left:auto;font-size:.66rem;color:var(--muted)"></span>
+    <button onclick="forceSyncAll()" title="Sync" style="background:transparent;border:none;cursor:pointer;color:var(--muted);margin-left:8px;font-size:.85rem" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">↻</button>
   </div>
 </aside>
 
@@ -1027,6 +1031,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <script>
 // ===================== CONSTANTS =====================
+const APP_VERSION='2026-06-19.1'; // change à chaque déploiement pour vérifier la version chargée
 let CAL_GOAL=2500, STEPS_GOAL=15000;
 const DB_KEY='fitness_v4', PROG_KEY='fitness_programme_v2', BMR_KEY='fitness_bmr';
 const PROGRAMS_KEY='fitness_programs_v1', PROFILE_KEY='fitness_profile_v1';
@@ -3571,6 +3576,7 @@ function renderAll(){
 (function init(){
   const today=new Date().toISOString().split('T')[0];
   document.getElementById('globalDate').value=today;
+  const vEl=document.getElementById('app-version'); if(vEl) vEl.textContent='v'+APP_VERSION;
 
   // Restore steps goal
   const sg=localStorage.getItem(STEPS_GOAL_KEY);
