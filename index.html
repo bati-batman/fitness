@@ -193,6 +193,12 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 /* Pastille temps de repos */
 .rest-pill { display:inline-flex; align-items:center; gap:4px; background:rgba(108,99,255,.15); border:1px solid rgba(108,99,255,.4); color:var(--accent); border-radius:999px; padding:3px 10px; font-size:.74rem; font-weight:700; cursor:pointer; white-space:nowrap; }
 .rest-pill:hover { background:rgba(108,99,255,.28); }
+.biset-rest-divider { display:flex; justify-content:center; margin:2px 0 8px; }
+.ton-diff { font-weight:800; }
+.session-ton-total { margin-top:14px; padding:10px 14px; border-radius:10px; background:var(--card3); font-size:.9rem; color:var(--text); }
+.session-ton-total.fb-up { background:rgba(67,233,123,.12); color:#43e97b; }
+.session-ton-total.fb-down { background:rgba(231,76,60,.12); color:#e74c3c; }
+.session-ton-total.fb-eq { background:rgba(167,139,250,.12); color:#a78bfa; }
 /* Tonnage par série */
 .set-ton { font-size:.72rem; font-weight:800; color:var(--muted); align-self:flex-end; padding-bottom:7px; white-space:nowrap; }
 .set-ton .set-ton-lbl { font-size:.58rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; display:block; }
@@ -652,6 +658,9 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     </div>
   </div>
 
+  <!-- SCORE FORME / PERF (7 derniers jours) -->
+  <div id="today-perf-score"></div>
+
   <!-- SÉANCE DU JOUR -->
   <div id="missed-sessions-box"></div>
   <div id="prog-preview-box"></div>
@@ -677,6 +686,13 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     <h2>🍽️ Mes macros cibles du jour</h2>
     <p style="color:var(--muted);font-size:.82rem;margin:-4px 0 12px">Protéines 2 g/kg (2,2 en sèche/perte de gras), lipides 1 g/kg, glucides = le reste. Ajusté selon ton objectif.</p>
     <div id="cal-macros-card"></div>
+  </div>
+
+  <!-- LISSAGE HEBDO (moyenne glissante 7 jours) -->
+  <div class="card">
+    <h2>🔁 Lissage hebdo — moyenne 7 jours</h2>
+    <p style="color:var(--muted);font-size:.82rem;margin:-4px 0 12px">Ce qui compte c'est la moyenne sur la semaine, pas un seul jour. Si tu fais un écart un jour, compense les jours suivants pour rester dans la cible.</p>
+    <div id="cal-rolling"></div>
   </div>
 
   <!-- BMR CALCULATOR -->
@@ -842,6 +858,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
       <div id="weeklySchedule" class="weekly-schedule"></div>
       <div id="progDayEditor"><div class="empty"><div class="icon">📅</div>Sélectionne un jour pour l'éditer</div></div>
     </div>
+    <div id="program-volume"></div>
   </div>
 </div>
 
@@ -1031,7 +1048,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <script>
 // ===================== CONSTANTS =====================
-const APP_VERSION='2026-06-19.1'; // change à chaque déploiement pour vérifier la version chargée
+const APP_VERSION='2026-06-19.2'; // change à chaque déploiement pour vérifier la version chargée
 let CAL_GOAL=2500, STEPS_GOAL=15000;
 const DB_KEY='fitness_v4', PROG_KEY='fitness_programme_v2', BMR_KEY='fitness_bmr';
 const PROGRAMS_KEY='fitness_programs_v1', PROFILE_KEY='fitness_profile_v1';
@@ -1910,6 +1927,21 @@ function renderCalories(){
   if(profile.activity) document.getElementById('bmr-activity').value=profile.activity;
   if(profile.goal) document.getElementById('bmr-goal').value=profile.goal;
   if(profile.sex) calcBMR(true); // silent recalc
+  // Moyenne glissante 7 jours (lissage hebdo)
+  const roll=document.getElementById('cal-rolling');
+  if(roll){
+    const last7=getLast(7,k=>(getData()[k]||{}).kcal_total||0).map(h=>h.value);
+    const logged=last7.filter(v=>v>0);
+    const avg=logged.length?Math.round(logged.reduce((a,b)=>a+b,0)/logged.length):0;
+    const diff=avg-CAL_GOAL;
+    const col=avg===0?'var(--muted)':Math.abs(diff)<=120?'#43e97b':diff>0?'#f7971e':'#6c63ff';
+    const verdict=avg===0?'Pas encore de données cette semaine.':Math.abs(diff)<=120?'Dans la cible 👌':diff>0?`Au-dessus de ${diff} kcal/j en moyenne — allège un peu les prochains jours.`:`En-dessous de ${-diff} kcal/j — tu peux manger un peu plus.`;
+    roll.innerHTML=`<div class="macro-strip">
+      <div class="macro-chip" style="--c:${col}"><b>${avg?avg.toLocaleString('fr'):'--'}</b><span>Moyenne 7j (kcal/j)</span></div>
+      <div class="macro-chip" style="--c:var(--accent4)"><b>${CAL_GOAL.toLocaleString('fr')}</b><span>Objectif/j</span></div>
+      <div class="macro-chip" style="--c:${col}"><b>${avg?(diff>0?'+':'')+diff.toLocaleString('fr'):'--'}</b><span>Écart moyen/j</span></div>
+    </div><div style="margin-top:8px;font-size:.84rem;font-weight:600;color:${col}">${verdict}</div>`;
+  }
   // Carte macros toujours visible
   const mc=document.getElementById('cal-macros-card');
   if(mc){
@@ -2155,11 +2187,11 @@ let _extraExercises=[],_extraIdCounter=0;
 // ── Référence "semaine précédente" pour la comparaison de la séance du jour ──
 // Cherche en priorité une séance datant de 5 à 16 jours (= la semaine d'avant).
 // À défaut, prend la séance précédente la plus proche (mieux que rien).
+// Référence = la DERNIÈRE séance réelle où l'exercice a été fait (peu importe la date)
 function getRefPerf(exName, beforeDate){
   const data=getData();
   const dref=new Date(beforeDate+'T12:00:00');
   const dates=Object.keys(data).filter(k=>k<beforeDate).sort().reverse();
-  let fallback=null;
   for(const k of dates){
     const ex=(data[k].exercises||[]).find(e=>e.name===exName);
     if(!ex)continue;
@@ -2167,11 +2199,9 @@ function getRefPerf(exName, beforeDate){
       (ex.sets?Array.from({length:ex.sets},()=>({reps:ex.reps||0,weight:ex.weight||0,myoreps:''})):null);
     if(!sets||!sets.length)continue;
     const daysAgo=Math.round((dref-new Date(k+'T12:00:00'))/86400000);
-    const rec={date:k,sets,daysAgo};
-    if(!fallback)fallback=rec;
-    if(daysAgo>=5&&daysAgo<=16) return rec; // semaine précédente
+    return {date:k,sets,daysAgo}; // première trouvée en remontant = la plus récente
   }
-  return fallback;
+  return null;
 }
 
 // ── Trouve la dernière séance AVANT beforeDate qui contient exName ──
@@ -2223,11 +2253,37 @@ function updateSetFeedback(el){
     if(!active){ tEl.className='set-ton'; tEl.innerHTML='<span class="set-ton-lbl">Tonnage</span>—'; }
     else{
       const ton=Math.round(w*(r+myo));
-      const refTon=refW*(refReps+refMyo);
+      const refTon=Math.round(refW*(refReps+refMyo));
       tEl.className='set-ton '+(_fbClass(ton,refTon)||'');
-      tEl.innerHTML='<span class="set-ton-lbl">Tonnage</span>'+ton+' kg';
+      // Δ tonnage de la série vs dernière séance (même n° de série)
+      const diff=refTon>0?ton-refTon:null;
+      const diffTxt=diff!=null&&diff!==0?` <span class="ton-diff">(${diff>0?'+':''}${diff})</span>`:'';
+      tEl.innerHTML='<span class="set-ton-lbl">Tonnage</span>'+ton+' kg'+diffTxt;
     }
   }
+  _updateSessionTonTotal();
+}
+// Total tonnage de la séance + Δ vs dernière séance (somme des références affichées)
+function _updateSessionTonTotal(){
+  const box=document.getElementById('prog-preview-box');
+  const el=document.getElementById('session-ton-total');
+  if(!box||!el)return;
+  let total=0, refTotal=0;
+  box.querySelectorAll('.set-fb').forEach(row=>{
+    const r=parseInt(row.querySelector('[data-field="reps"]')?.value)||0;
+    if(r<=0)return;
+    const w=parseFloat(row.querySelector('[data-field="weight"]')?.value)||0;
+    const myo=myorepsTotal(row.querySelector('[data-field="myoreps"]')?.value||'');
+    total+=w*(r+myo);
+    const refW=parseFloat(row.dataset.refW)||0, refR=parseFloat(row.dataset.refReps)||0, refM=myorepsTotal(row.dataset.refMyo||'');
+    refTotal+=refW*(refR+refM);
+  });
+  total=Math.round(total); refTotal=Math.round(refTotal);
+  const diff=refTotal>0?total-refTotal:null;
+  const cls=diff==null?'':(diff>0?'fb-up':diff<0?'fb-down':'fb-eq');
+  el.className='session-ton-total '+cls;
+  el.innerHTML=`Tonnage séance : <strong>${total.toLocaleString('fr')} kg</strong>`+
+    (diff!=null?` · vs dernière séance : <strong>${diff>0?'+':''}${diff.toLocaleString('fr')} kg</strong>`:'');
 }
 // Recolore tous les champs déjà remplis d'un conteneur (au chargement / re-render)
 function _refreshAllFeedback(scope){
@@ -2267,7 +2323,7 @@ function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
 
   const rows=Array.from({length:n},(_,i)=>{
     const ps=prefillSets?prefillSets[i]:null;             // valeurs RÉELLES (séance d'aujourd'hui)
-    const ref=lastPerf?(lastPerf.sets[i]||lastPerf.sets[lastPerf.sets.length-1]):null; // semaine passée → fantôme
+    const ref=lastPerf?lastPerf.sets[i]:null; // dernière séance, MÊME numéro de série (chiffre gris juste)
     return setRowHTML(bi,key,i+1,
       ps?ps.reps:'', ps?ps.weight:'', ps?ps.myoreps||'':'',
       ref?ref.reps:null, ref?ref.weight:null, ref?ref.myoreps||'':'');
@@ -2497,20 +2553,22 @@ function renderProgPreview(){
       const currentDate=getDateKey();
       const exLastPerfs=named.map(({ex})=>getRefPerf(ex.name,currentDate));
       // Nb de séries PAR EXERCICE (suit le programme, sans masquer des séries déjà saisies)
-      const exCounts=named.map(({ex},k)=>{
-        const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
-        return Math.max(ex.sets||0, pf?pf.length:0)||1;
-      });
+      // Nb de séries par exercice = celui du PROGRAMME (source de vérité de la structure)
+      const exCounts=named.map(({ex})=>ex.sets||1);
       const nRows=Math.max(1,...exCounts);
+      const blockRest=(named.find(o=>o.ex.rest)||{ex:{}}).ex.rest||0;
+      const restDivider=blockRest>0
+        ? `<div class="biset-rest-divider"><span class="rest-pill" onclick="startTimer(${blockRest})" title="Lancer le minuteur">⏱️ repos ${blockRest}s</span></div>`
+        : '';
       // Build sets rows : à la série N, on n'affiche QUE les exercices qui ont ≥ N séries
-      const setsHTML=Array.from({length:nRows},(_,si)=>{
+      const setBlocks=Array.from({length:nRows},(_,si)=>{
         const sn=si+1;
         const exLines=named.map(({ex,ei},k)=>{
           if(si>=exCounts[k]) return ''; // cet exercice n'a pas cette série → on ne l'affiche pas
           const pf=prefill&&prefill[ex.name]?prefill[ex.name]:null;
           const ps=pf?pf[si]:null;                                  // valeurs réelles d'aujourd'hui
           const lp=exLastPerfs[k];
-          const ref=lp?(lp.sets[si]||lp.sets[lp.sets.length-1]):null; // semaine passée → fantôme
+          const ref=lp?lp.sets[si]:null; // dernière séance, MÊME numéro de série (pas de repli → chiffre gris juste)
           const refRepsVal=parseFloat(ref?.reps)||0;
           const refWVal=parseFloat(ref?.weight)||0;
           const refMyo=ref?ref.myoreps||'':'';
@@ -2526,7 +2584,9 @@ function renderProgPreview(){
           </div>`;
         }).filter(Boolean).join('');
         return `<div class="biset-set-block"><div class="biset-set-title">Série ${sn}</div>${exLines}</div>`;
-      }).join('');
+      });
+      // Repos affiché ENTRE chaque série du biset
+      const setsHTML=setBlocks.join(restDivider);
       // En haut du biset : nom de chaque exercice + son conseil (pas de mention "semaine passée")
       const advice=named.map(({ex})=>{
         const color=getMuscleColor(ex.name);
@@ -2535,12 +2595,8 @@ function renderProgPreview(){
           ${_conseilHTML(ex.name)}
         </div>`;
       }).join('');
-      const blockRest=(named.find(o=>o.ex.rest)||{ex:{}}).ex.rest||0;
-      const restLabel=blockRest>0
-        ? `<span class="rest-pill" onclick="startTimer(${blockRest})" title="Lancer le minuteur">⏱️ repos ${blockRest}s</span>`
-        : '';
       return `<div class="${groupCls}">
-        <div class="group-label ${labelCls}" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${labelTxt} ${restLabel}</div>
+        <div class="group-label ${labelCls}">${labelTxt}</div>
         <div class="biset-advice">${advice}</div>
         <div class="biset-sets-wrap" id="biset-sets-${bi}">${setsHTML}</div>
       </div>`;
@@ -2583,6 +2639,7 @@ function renderProgPreview(){
         </div>
       </div>
     </div>
+    <div id="session-ton-total" class="session-ton-total"></div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
       <button class="btn btn-success" onclick="saveFromPreview()">💾 Enregistrer la séance</button>
       ${alreadyDone?`<button class="btn btn-outline btn-sm" onclick="clearTodaySession()" style="border-color:#e74c3c;color:#e74c3c">✕ Effacer séance</button>`:''}
@@ -2684,6 +2741,23 @@ function saveFromPreview(){
   });
 
   if(!newExs.length){showToast('⚠️ Aucune donnée à enregistrer');return;}
+
+  // Garde-fou : valeurs anormalement élevées (faute de frappe ?) → demander confirmation
+  const suspicious=[];
+  newExs.forEach(e=>{
+    const ref=getRefPerf(e.name,date);
+    const refMaxW=ref?Math.max(0,...ref.sets.map(s=>+s.weight||0)):0;
+    (e.setData||[]).forEach((s,i)=>{
+      const w=+s.weight||0, r=+s.reps||0;
+      const hiW = w>300 || (refMaxW>0 && w>refMaxW*1.5+5);
+      const hiR = r>40;
+      if(hiW||hiR) suspicious.push(`• ${e.name} — Série ${i+1} : ${w}kg × ${r} reps`);
+    });
+  });
+  if(suspicious.length){
+    if(!confirm('⚠️ Valeurs inhabituellement élevées détectées :\n\n'+suspicious.join('\n')+'\n\nC\'est bien correct ? OK = valider, Annuler = corriger.')) return;
+  }
+
   data[date].exercises=newExs;
   _extraExercises=[];
   const setsBackup={};
@@ -3162,8 +3236,55 @@ function renderLastTrained(){
 
 // ===================== PROGRAMME EDITOR =====================
 let _editingDay=null;
+// Fourchette de repos optimale selon l'objectif
+function restRange(){
+  const o=(getProfile().objectif)||'masse';
+  if(o==='force') return [120,300];
+  if(o==='gras') return [30,60];
+  return [60,120]; // prise de masse
+}
+function restStatus(rest){
+  const [lo,hi]=restRange();
+  if(rest==null||rest==='') return {col:'var(--muted)',txt:'à définir'};
+  if(rest<lo) return {col:'#f7971e',txt:`court (vise ${lo}-${hi}s)`};
+  if(rest>hi) return {col:'#f7971e',txt:`long (vise ${lo}-${hi}s)`};
+  return {col:'#43e97b',txt:'optimisé ✓'};
+}
+// Volume hebdomadaire (séries par muscle) du programme actif + alerte repos
+function renderProgramVolume(){
+  const el=document.getElementById('program-volume'); if(!el)return;
+  const prog=getProg();
+  const muscleSets={}; const restWarn=[]; const [lo,hi]=restRange();
+  for(let dw=0;dw<7;dw++){
+    const dp=prog[dw]; if(!dp||dp.isRest||!dp.blocks)continue;
+    dp.blocks.forEach(b=>(b.exercises||[]).forEach(ex=>{
+      if(!ex.name)return;
+      const m=getMuscle(ex.name);
+      muscleSets[m]=(muscleSets[m]||0)+(ex.sets||0);
+      if(ex.rest!=null&&ex.rest!=='' && (ex.rest<lo||ex.rest>hi)) restWarn.push(ex.name);
+    }));
+  }
+  const entries=Object.entries(muscleSets).filter(([m])=>m!=='Autre').sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){ el.innerHTML=''; return; }
+  const max=Math.max(...entries.map(([,s])=>s));
+  el.innerHTML=`<div class="card">
+    <h2>📊 Volume hebdo par muscle — ${getActiveProgramName()}</h2>
+    <p style="color:var(--muted);font-size:.8rem;margin:-4px 0 12px">Total des séries programmées sur la semaine. Repère courant : ~10-20 séries par muscle et par semaine.</p>
+    <div class="muscle-summary">${entries.map(([m,s])=>{
+      const md=MUSCLE_DB[m]||{color:'#888',icon:'•'};
+      const tag=s<10?' <span style="color:#f7971e">(peu)</span>':s>22?' <span style="color:#f7971e">(beaucoup)</span>':'';
+      return `<div class="ms-item"><div class="ms-dot" style="background:${md.color}"></div>
+        <div class="wr-bar-wrap"><div class="wr-name">${md.icon} ${m}${tag}</div>
+        <div class="wr-bar"><div class="wr-bar-fill" style="width:${Math.round(s/max*100)}%;background:${md.color}"></div></div></div>
+        <div class="ms-sets" style="color:${md.color}">${s}</div></div>`;
+    }).join('')}</div>
+    ${restWarn.length?`<div class="day-readiness" style="background:rgba(247,151,30,.1);color:#f7971e;margin-top:12px">⏱️ Repos à revoir (hors ${lo}-${hi}s pour ton objectif) : <strong>${[...new Set(restWarn)].join(', ')}</strong></div>`:`<div class="day-readiness" style="background:rgba(67,233,123,.1);color:#43e97b;margin-top:12px">⏱️ Repos cohérents avec ton objectif (${lo}-${hi}s) ✓</div>`}
+  </div>`;
+}
+
 function renderProgrammeEditor(){
   renderProgramSwitcher();
+  renderProgramVolume();
   const prog=getProg();
   const today=new Date().getDay();
   const schedEl=document.getElementById('weeklySchedule');
@@ -3286,6 +3407,7 @@ function renderProgBlock(block,bi,dw){
         <div style="display:flex;flex-direction:column;gap:2px">
           <label style="font-size:.62rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Repos (s)</label>
           <input type="number" placeholder="90" value="${ex.rest!=null?ex.rest:''}" min="0" max="600" step="15" style="width:64px" onblur="updateProgEx(${dw},${bi},${ei},'rest',parseInt(this.value)||0)">
+          <span style="font-size:.6rem;font-weight:700;color:${restStatus(ex.rest).col}">${restStatus(ex.rest).txt}</span>
         </div>
       </div>`;
   }).join('');
@@ -3500,8 +3622,55 @@ function showToast(msg){
 
 // ===================== RENDER ALL =====================
 // ===================== AUJOURD'HUI =====================
+// Score perf 7 derniers jours = tendance du tonnage + progression des exercices clés
+function computePerfTrend(){
+  const data=getData();
+  const days=Object.keys(data).filter(k=>(data[k].exercises||[]).length).sort();
+  if(days.length<2) return null;
+  const tons=days.map(k=>computeTonnage(data[k].exercises||[]));
+  const last=tons[tons.length-1];
+  const prev=tons.slice(-4,-1);
+  const prevAvg=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:last;
+  const tonChange=prevAvg>0?(last-prevAvg)/prevAvg:0;
+  // Progression des exercices de la dernière séance vs leur séance précédente
+  const lastDay=days[days.length-1];
+  let up=0,down=0,tot=0;
+  (data[lastDay].exercises||[]).forEach(e=>{
+    const ref=getRefPerf(e.name,lastDay); if(!ref)return;
+    const curW=Math.max(0,...(e.setData||[]).map(s=>+s.weight||0));
+    const refW=Math.max(0,...ref.sets.map(s=>+s.weight||0));
+    const curR=(e.setData||[]).reduce((a,s)=>a+(+s.reps||0),0);
+    const refR=ref.sets.reduce((a,s)=>a+(+s.reps||0),0);
+    tot++;
+    if(curW>refW||(curW===refW&&curR>refR)) up++;
+    else if(curW<refW||(curW===refW&&curR<refR)) down++;
+  });
+  let score=50 + tonChange*50 + (tot?(up-down)/tot*30:0);
+  score=Math.max(0,Math.min(100,Math.round(score)));
+  let v;
+  if(score>=66) v={txt:'📈 Tes perfs montent — très bon, continue comme ça !',col:'#43e97b',bg:'rgba(67,233,123,.12)'};
+  else if(score>=45) v={txt:'➡️ Tes perfs stagnent — correct, pense à ajouter du poids/des reps ou à varier.',col:'#f7971e',bg:'rgba(247,151,30,.12)'};
+  else v={txt:'📉 Tes perfs baissent — vigilance : récupération, sommeil, ou semaine de décharge.',col:'#e74c3c',bg:'rgba(231,76,60,.12)'};
+  return {score,v,up,down,tot};
+}
+function renderPerfScore(){
+  const el=document.getElementById('today-perf-score'); if(!el)return;
+  const t=computePerfTrend();
+  if(!t){ el.innerHTML=''; return; }
+  el.innerHTML=`<div class="card" style="border-left:4px solid ${t.v.col}">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="font-size:2rem;font-weight:800;color:${t.v.col}">${t.score}<span style="font-size:.9rem;color:var(--muted)">/100</span></div>
+      <div style="flex:1;min-width:180px">
+        <div style="font-weight:700;color:${t.v.col};font-size:.95rem">Score forme/perf (7 derniers jours)</div>
+        <div style="font-size:.84rem;color:var(--text);margin-top:2px">${t.v.txt}</div>
+        ${t.tot?`<div style="font-size:.76rem;color:var(--muted);margin-top:3px">${t.up} exo(s) en progrès · ${t.down} en baisse sur ta dernière séance</div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
 function renderToday(){
   renderTodayInputs();
+  renderPerfScore();
   renderExercises(); // séance du jour (preview + notes + missed) + stats
 }
 function renderTodayInputs(){
