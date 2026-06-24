@@ -546,6 +546,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     <button class="dsb-item" onclick="deskNav('poids',this)"><span class="nav-dot" style="background:#ff6584"></span>Poids</button>
     <button class="dsb-item" onclick="deskNav('analyse',this)"><span class="nav-dot" style="background:#a78bfa"></span>Analyse</button>
     <div class="dsb-section-lbl" style="margin-top:8px">Données</div>
+    <button class="dsb-item dsb-action" onclick="restoreFromCloud()">⟱ Restaurer du cloud</button>
     <button class="dsb-item dsb-action" onclick="forceSyncAll()">↻ Forcer sync</button>
     <button class="dsb-item dsb-action" onclick="document.getElementById('importFileInput').click()">⬆ Importer backup</button>
   </div>
@@ -1048,7 +1049,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <script>
 // ===================== CONSTANTS =====================
-const APP_VERSION='2026-06-19.2'; // change à chaque déploiement pour vérifier la version chargée
+const APP_VERSION='2026-06-19.3'; // change à chaque déploiement pour vérifier la version chargée
 let CAL_GOAL=2500, STEPS_GOAL=15000;
 const DB_KEY='fitness_v4', PROG_KEY='fitness_programme_v2', BMR_KEY='fitness_bmr';
 const PROGRAMS_KEY='fitness_programs_v1', PROFILE_KEY='fitness_profile_v1';
@@ -1237,6 +1238,13 @@ async function _loadFromCloud(){
   }
 }
 
+// ── Restaure depuis le cloud (tire les données serveur, fusion "le plus complet gagne") ──
+function restoreFromCloud(){
+  showToast('⟱ Restauration depuis le cloud…');
+  _loadFromCloud().then(()=>{ renderAll(); showToast('✅ Restauré depuis le cloud'); })
+    .catch(()=>showToast('❌ Restauration impossible (réseau ?)'));
+}
+
 // ── Force sync complète — pousse chaque jour séparément ─────────────────────
 async function forceSyncAll(){
   const d=getData();
@@ -1248,11 +1256,14 @@ async function forceSyncAll(){
       ...Object.entries(d).map(([date,day])=>({
         key:_SB_DAY_PREFIX+date,value:day,updated_at:new Date().toISOString()
       })),
-      {key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()},
-      {key:PROGRAMS_KEY,value:getProgramsContainer(),updated_at:new Date().toISOString()},
       {key:BMR_KEY,value:getBmrProfile(),updated_at:new Date().toISOString()},
       {key:PROFILE_KEY,value:getProfile(),updated_at:new Date().toISOString()},
     ];
+    // ⚠️ Ne JAMAIS pousser un programme VIDE par-dessus le cloud (sécurité anti-perte)
+    if(_daysHaveContent(getProg())){
+      rows.push({key:PROG_KEY,value:getProg(),updated_at:new Date().toISOString()});
+      rows.push({key:PROGRAMS_KEY,value:getProgramsContainer(),updated_at:new Date().toISOString()});
+    }
     // Envoie par lots de 50 pour éviter les limites HTTP
     for(let i=0;i<rows.length;i+=50){
       await _sbPost(rows.slice(i,i+50));
@@ -1347,11 +1358,28 @@ function _cleanOldSnapshots(){
 // PROG_KEY reste le miroir du programme ACTIF (rétro-compat + sync cloud existante).
 function _newProgId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
 
+function _daysHaveContent(days){
+  try{ return Object.values(days||{}).some(d=>d&&((d.blocks&&d.blocks.some(b=>(b.exercises||[]).some(e=>e&&e.name)))||d.isRest)); }
+  catch(e){ return false; }
+}
 function getProgramsContainer(){
   let c=null;
   try{ c=JSON.parse(localStorage.getItem(PROGRAMS_KEY)); }catch(e){}
   if(c&&c.programs&&Object.keys(c.programs).length){
     if(!c.programs[c.activeId]) c.activeId=Object.keys(c.programs)[0];
+    // AUTO-RÉPARATION : si le programme actif est vide mais qu'un autre a du contenu, bascule dessus
+    if(!_daysHaveContent(c.programs[c.activeId].days)){
+      const richer=Object.keys(c.programs).find(id=>_daysHaveContent(c.programs[id].days));
+      if(richer) c.activeId=richer;
+    }
+    // AUTO-RÉPARATION : si TOUS les programmes sont vides mais le miroir PROG_KEY a du contenu, restaure-le
+    if(!_daysHaveContent(c.programs[c.activeId].days)){
+      let mirror={}; try{ mirror=JSON.parse(localStorage.getItem(PROG_KEY))||{}; }catch(e){}
+      if(_daysHaveContent(mirror)){
+        c.programs[c.activeId].days=mirror;
+        try{ localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c)); }catch(e){}
+      }
+    }
     return c;
   }
   // Migration : récupère l'ancien programme unique (local ou cloud déjà restauré dans PROG_KEY)
@@ -1362,7 +1390,7 @@ function getProgramsContainer(){
   // ⚠️ On ne persiste QUE s'il y a réellement un programme à migrer.
   // Écrire un conteneur VIDE trop tôt (avant que le cloud ait répondu) empêcherait
   // la restauration cloud → le programme apparaîtrait vide à chaque connexion.
-  if(Object.keys(oldDays).length){ localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c)); }
+  if(_daysHaveContent(oldDays)){ localStorage.setItem(PROGRAMS_KEY,JSON.stringify(c)); }
   return c;
 }
 // Mesure la "richesse" d'un programme = nb total d'exercices nommés (pour comparer local vs cloud)
@@ -2646,13 +2674,13 @@ function renderProgPreview(){
     </div>
   </div>`;
   // Re-render les exercices extra si on revient sur la même date
-  if(_extraExercises.length) _renderExtraExercises();
+  try{ if(_extraExercises.length) _renderExtraExercises(); }catch(e){ console.warn('extraEx',e); }
 
-  // Colore les valeurs déjà saisies + calcule les tonnages (comparaison semaine passée)
-  _refreshAllFeedback(box);
+  // Colore les valeurs déjà saisies + calcule les tonnages — non bloquant
+  try{ _refreshAllFeedback(box); }catch(e){ console.warn('refreshFeedback',e); }
 
   // ── Vérification : tous les exercices du programme sont bien dans la séance ──
-  _verifySessionExercises(dayProg);
+  try{ _verifySessionExercises(dayProg); }catch(e){ console.warn('verify',e); }
 }
 
 // Contrôle de cohérence : chaque exercice nommé du programme doit avoir au moins
@@ -3283,8 +3311,7 @@ function renderProgramVolume(){
 }
 
 function renderProgrammeEditor(){
-  renderProgramSwitcher();
-  renderProgramVolume();
+  try{ renderProgramSwitcher(); }catch(e){ console.warn('switcher',e); }
   const prog=getProg();
   const today=new Date().getDay();
   const schedEl=document.getElementById('weeklySchedule');
@@ -3311,7 +3338,9 @@ function renderProgrammeEditor(){
     </div>`;
   }).join('');
 
-  if(_editingDay!==null) renderDayEditor(_editingDay);
+  if(_editingDay!==null){ try{ renderDayEditor(_editingDay); }catch(e){ console.warn('dayEditor',e); } }
+  // Résumé volume — non bloquant : ne doit jamais empêcher l'affichage du programme
+  try{ renderProgramVolume(); }catch(e){ console.warn('progVolume',e); }
 }
 
 function selectProgDay(dw){
@@ -3669,9 +3698,10 @@ function renderPerfScore(){
   </div>`;
 }
 function renderToday(){
-  renderTodayInputs();
-  renderPerfScore();
-  renderExercises(); // séance du jour (preview + notes + missed) + stats
+  // PRIORITÉ : la séance du jour doit toujours s'afficher, quoi qu'il arrive
+  try{ renderExercises(); }catch(e){ console.warn('renderExercises',e); }
+  try{ renderTodayInputs(); }catch(e){ console.warn('todayInputs',e); }
+  try{ renderPerfScore(); }catch(e){ console.warn('perfScore',e); }
 }
 function renderTodayInputs(){
   const data=getData(),date=getDateKey();
@@ -3733,12 +3763,14 @@ function renderAll(){
   const active=document.querySelector('.section.active');
   if(!active)return;
   const id=active.id.replace('sec-','');
-  if(id==='today')renderToday();
-  else if(id==='calories')renderCalories();
-  else if(id==='exercices'){renderProgrammeEditor();renderExercises();}
-  else if(id==='steps')renderSteps();
-  else if(id==='poids')renderPoids();
-  else if(id==='analyse')renderAnalyse();
+  try{
+    if(id==='today')renderToday();
+    else if(id==='calories')renderCalories();
+    else if(id==='exercices'){ try{renderProgrammeEditor();}catch(e){console.warn('progEditor',e);} try{renderExercises();}catch(e){console.warn('exercices',e);} }
+    else if(id==='steps')renderSteps();
+    else if(id==='poids')renderPoids();
+    else if(id==='analyse')renderAnalyse();
+  }catch(e){ console.warn('renderAll('+id+')',e); }
 }
 
 // ===================== INIT =====================
