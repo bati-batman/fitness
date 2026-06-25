@@ -571,6 +571,8 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
     <div class="cloud-indicator-mobile" style="display:flex;align-items:center;gap:4px">
       <div class="save-dot cloud-dot-el" id="cloudDotMobile"></div>
       <span class="cloud-status-el" id="cloudStatusMobile" style="font-size:.72rem;color:var(--muted)">☁️</span>
+      <span id="app-version-mobile" style="font-size:.62rem;color:var(--muted)"></span>
+      <button onclick="restoreFromCloud()" style="background:transparent;border:none;cursor:pointer;color:var(--muted);font-size:.8rem;padding:2px 4px;border-radius:5px" title="Restaurer du cloud">⟱</button>
       <button onclick="forceSyncAll()" style="background:transparent;border:none;cursor:pointer;color:var(--muted);font-size:.8rem;padding:2px 4px;border-radius:5px" title="Sync">↻</button>
     </div>
   </div>
@@ -1490,83 +1492,65 @@ function deleteProgram(){
   renderAll();
   showToast('🗑️ Programme supprimé');
 }
-// ── Reconstruit le programme actif à partir des séances déjà enregistrées ──
-function importSessionsToProgram(){
+// Construit un objet "days" de programme à partir des séances enregistrées (préserve bisets/trisets)
+function _buildProgramFromSessions(baseProg){
   const data=getData();
   const dayKeys=Object.keys(data).filter(k=>(data[k].exercises||[]).length>0).sort();
-  if(!dayKeys.length){ showToast('⚠️ Aucune séance enregistrée à importer'); return; }
-
-  // Pour chaque jour de la semaine (0=Dim..6=Sam), prend la séance la PLUS RÉCENTE
   const latestByDow={};
-  dayKeys.forEach(k=>{
-    const dow=new Date(k+'T12:00:00').getDay();
-    latestByDow[dow]=k; // dayKeys trié croissant → la dernière écrase = la plus récente
-  });
-
+  dayKeys.forEach(k=>{ latestByDow[new Date(k+'T12:00:00').getDay()]=k; });
   const dows=Object.keys(latestByDow).map(Number);
-  const name=getActiveProgramName();
-  if(!confirm(`Importer tes séances dans « ${name} » ?\n\n${dows.length} jour(s) seront (re)remplis à partir de tes dernières séances enregistrées. Tu pourras tout ajuster ensuite.`)) return;
-
-  const prog=getProg();
+  const prog=Object.assign({},baseProg||{});
   let totalEx=0;
-
   dows.forEach(dow=>{
-    const dateKey=latestByDow[dow];
-    const exs=(data[dateKey].exercises||[]).filter(e=>e.name);
+    const exs=(data[latestByDow[dow]].exercises||[]).filter(e=>e.name);
     if(!exs.length) return;
-
-    // Représentation d'un exercice : nom, nb de séries, reps cibles (+ infos de groupe)
     const mapped=exs.map(e=>{
       const sd=e.setData&&e.setData.length?e.setData:null;
       const sets=sd?sd.length:(e.sets||3);
       let reps=e.reps||10;
-      if(sd){ // reps les plus fréquentes
-        const counts={};
-        sd.forEach(s=>{const r=+s.reps||0; if(r) counts[r]=(counts[r]||0)+1;});
-        const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
-        if(best) reps=+best[0];
-      }
+      if(sd){ const c={}; sd.forEach(s=>{const r=+s.reps||0; if(r)c[r]=(c[r]||0)+1;}); const b=Object.entries(c).sort((a,b)=>b[1]-a[1])[0]; if(b)reps=+b[0]; }
       return {ex:{name:e.name,sets,reps,rest:e.rest!=null?e.rest:90}, gtype:e.group_type||null, gid:e.group_id||null};
     });
     totalEx+=mapped.length;
-
-    // Reconstruit les blocs en respectant les bisets/trisets (group_id + group_type)
-    const blocks=[];
-    let i=0;
+    const blocks=[]; let i=0;
     while(i<mapped.length){
-      const cur=mapped[i];
-      const isGroup=cur.gtype==='biset'||cur.gtype==='triset';
+      const cur=mapped[i]; const isGroup=cur.gtype==='biset'||cur.gtype==='triset';
       if(isGroup && cur.gid!=null){
-        // Regroupe tous les exercices consécutifs partageant le même group_id
         const grp=[cur.ex]; let j=i+1;
-        while(j<mapped.length && mapped[j].gid===cur.gid && mapped[j].gtype===cur.gtype){
-          grp.push(mapped[j].ex); j++;
-        }
-        blocks.push({type:cur.gtype,exercises:grp});
-        i=j;
+        while(j<mapped.length && mapped[j].gid===cur.gid && mapped[j].gtype===cur.gtype){ grp.push(mapped[j].ex); j++; }
+        blocks.push({type:cur.gtype,exercises:grp}); i=j;
       } else if(isGroup){
-        // group_type sans group_id (ancien format) → chunk par taille (biset=2, triset=3)
-        const size=cur.gtype==='triset'?3:2;
-        const grp=[]; let j=i;
-        while(j<mapped.length && mapped[j].gtype===cur.gtype && grp.length<size){
-          grp.push(mapped[j].ex); j++;
-        }
-        blocks.push({type:cur.gtype,exercises:grp});
-        i=j;
-      } else {
-        blocks.push({type:'single',exercises:[cur.ex]});
-        i++;
-      }
+        const size=cur.gtype==='triset'?3:2; const grp=[]; let j=i;
+        while(j<mapped.length && mapped[j].gtype===cur.gtype && grp.length<size){ grp.push(mapped[j].ex); j++; }
+        blocks.push({type:cur.gtype,exercises:grp}); i=j;
+      } else { blocks.push({type:'single',exercises:[cur.ex]}); i++; }
     }
-
     const existing=prog[dow];
     prog[dow]={ label:(existing&&existing.label)||'', isRest:false, blocks };
   });
+  return {prog,totalEx,dows};
+}
 
+// ── Reconstruit le programme actif à partir des séances déjà enregistrées (bouton) ──
+function importSessionsToProgram(){
+  const data=getData();
+  if(!Object.keys(data).some(k=>(data[k].exercises||[]).length>0)){ showToast('⚠️ Aucune séance enregistrée à importer'); return; }
+  if(!confirm(`Reconstruire « ${getActiveProgramName()} » à partir de tes dernières séances enregistrées ? Tu pourras tout ajuster ensuite.`)) return;
+  const {prog,totalEx,dows}=_buildProgramFromSessions(getProg());
   saveProg(prog);
   _editingDay=null;
   renderProgrammeEditor();
   showToast(`✅ ${totalEx} exercices importés sur ${dows.length} jour(s)`);
+}
+
+// ── Auto-récupération : si le programme est VIDE mais qu'on a des séances, on le reconstruit tout seul ──
+function autoRecoverProgramIfEmpty(){
+  if(_daysHaveContent(getProg())) return false;
+  const {prog,totalEx}=_buildProgramFromSessions({});
+  if(!_daysHaveContent(prog)) return false;
+  saveProg(prog);
+  showToast(`🛟 Programme reconstruit depuis tes ${totalEx} exercices enregistrés`);
+  return true;
 }
 
 function renderProgramSwitcher(){
@@ -3778,6 +3762,7 @@ function renderAll(){
   const today=new Date().toISOString().split('T')[0];
   document.getElementById('globalDate').value=today;
   const vEl=document.getElementById('app-version'); if(vEl) vEl.textContent='v'+APP_VERSION;
+  const vElM=document.getElementById('app-version-mobile'); if(vElM) vElM.textContent='v'+APP_VERSION;
 
   // Restore steps goal
   const sg=localStorage.getItem(STEPS_GOAL_KEY);
@@ -3805,12 +3790,16 @@ function renderAll(){
 
   // Sync cloud — met à jour si données plus récentes sur le serveur
   _loadFromCloud().then(()=>{
+    // Si le programme est vide après le cloud mais qu'on a des séances → reconstruction auto
+    try{ autoRecoverProgramIfEmpty(); }catch(e){ console.warn('autoRecover',e); }
     renderAll();
     // Bannière import seulement si TOUJOURS vide après le cloud
     const hasData=Object.keys(getData()).length>0;
     const banner=document.getElementById('import-banner');
     if(!hasData&&banner) banner.style.display='flex';
   });
+  // Au cas où le cloud ne répond pas : tente quand même une reconstruction locale
+  try{ autoRecoverProgramIfEmpty(); }catch(e){}
 
   // Filet de sécurité synchro : retente régulièrement les jours en attente
   setInterval(()=>{ _flushPending(); },20000);
