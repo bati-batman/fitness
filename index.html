@@ -1051,7 +1051,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <script>
 // ===================== CONSTANTS =====================
-const APP_VERSION='2026-06-19.3'; // change à chaque déploiement pour vérifier la version chargée
+const APP_VERSION='2026-06-19.4'; // change à chaque déploiement pour vérifier la version chargée
 let CAL_GOAL=2500, STEPS_GOAL=15000;
 const DB_KEY='fitness_v4', PROG_KEY='fitness_programme_v2', BMR_KEY='fitness_bmr';
 const PROGRAMS_KEY='fitness_programs_v1', PROFILE_KEY='fitness_profile_v1';
@@ -2195,25 +2195,46 @@ function renderExerciseProgress(){
 // ===================== PROGRAMME PREVIEW — SAISIE PAR SÉRIE =====================
 let _editPrefill=null,_editBackup=null;
 let _extraExercises=[],_extraIdCounter=0;
+let _refBySlot={}; // référence pré-calculée par emplacement "bi_ei" (gère les doublons d'exercice)
 
-// ── Référence "semaine précédente" pour la comparaison de la séance du jour ──
-// Cherche en priorité une séance datant de 5 à 16 jours (= la semaine d'avant).
-// À défaut, prend la séance précédente la plus proche (mieux que rien).
-// Référence = la DERNIÈRE séance réelle où l'exercice a été fait (peu importe la date)
-function getRefPerf(exName, beforeDate){
+// Renvoie les séries d'une entrée d'exercice (setData, ou reconstruites depuis sets/reps/weight)
+function _exSets(ex){
+  if(ex.setData&&ex.setData.length) return ex.setData;
+  if(ex.sets) return Array.from({length:ex.sets},()=>({reps:ex.reps||0,weight:ex.weight||0,myoreps:''}));
+  return null;
+}
+// Référence = dernière séance réelle contenant l'exercice (1ʳᵉ occurrence — compat)
+function getRefPerf(exName, beforeDate){ return getRefPerfOcc(exName,0,beforeDate); }
+
+// Référence pour la N-ᵉ occurrence d'un exercice dans la journée (gère les doublons :
+// le 2ᵉ "Écarté" du jour se compare au 2ᵉ "Écarté" de la dernière séance, même série).
+function getRefPerfOcc(exName, occ, beforeDate){
   const data=getData();
   const dref=new Date(beforeDate+'T12:00:00');
   const dates=Object.keys(data).filter(k=>k<beforeDate).sort().reverse();
   for(const k of dates){
-    const ex=(data[k].exercises||[]).find(e=>e.name===exName);
-    if(!ex)continue;
-    const sets=ex.setData&&ex.setData.length?ex.setData:
-      (ex.sets?Array.from({length:ex.sets},()=>({reps:ex.reps||0,weight:ex.weight||0,myoreps:''})):null);
-    if(!sets||!sets.length)continue;
+    const matches=(data[k].exercises||[]).filter(e=>e.name===exName);
+    if(!matches.length) continue;
+    // occurrence correspondante ; si la séance passée en avait moins, on prend la dernière dispo
+    const ex=matches[occ]||matches[matches.length-1];
+    const sets=_exSets(ex);
+    if(!sets||!sets.length) continue;
     const daysAgo=Math.round((dref-new Date(k+'T12:00:00'))/86400000);
-    return {date:k,sets,daysAgo}; // première trouvée en remontant = la plus récente
+    return {date:k,sets,daysAgo};
   }
   return null;
+}
+// Pré-calcule la référence de CHAQUE emplacement d'exercice de la journée (en respectant l'ordre/occurrences)
+function _buildRefBySlot(dayProg, beforeDate){
+  _refBySlot={};
+  const occ={};
+  (dayProg.blocks||[]).forEach((block,bi)=>{
+    (block.exercises||[]).forEach((ex,ei)=>{
+      if(!ex||!ex.name)return;
+      const n=occ[ex.name]=(occ[ex.name]==null?0:occ[ex.name]+1);
+      _refBySlot[bi+'_'+ei]=getRefPerfOcc(ex.name,n,beforeDate);
+    });
+  });
 }
 
 // ── Trouve la dernière séance AVANT beforeDate qui contient exName ──
@@ -2329,7 +2350,9 @@ function setRowHTML(bi,key,sn,valReps,valWeight,valMyo,refReps,refW,refMyo){
 
 function exBlockHTML(ex,key,bi,groupLabel,groupColor,prefillSets){
   const currentDate=getDateKey();
-  const lastPerf=getRefPerf(ex.name,currentDate);
+  // Référence par emplacement (gère les doublons) ; repli sur recherche par nom pour les exos libres
+  const slot=bi+'_'+key;
+  const lastPerf=(slot in _refBySlot)?_refBySlot[slot]:getRefPerf(ex.name,currentDate);
   // Le nb de séries suit le PROGRAMME (ex.sets), sans jamais masquer des séries déjà saisies
   const n=Math.max(ex.sets||0, prefillSets?prefillSets.length:0)||4;
 
@@ -2543,6 +2566,9 @@ function renderProgPreview(){
     todayExs.forEach(e=>{ if(e.setData) prefill[e.name]=e.setData; });
   }
 
+  // Pré-calcule la référence (dernière séance) par emplacement → gère les doublons d'exercice
+  _buildRefBySlot(dayProg,date);
+
   const blocksHTML=dayProg.blocks.map((block,bi)=>{
     const btype=block.type||'single';
     const exs=block.exercises||[];
@@ -2563,7 +2589,8 @@ function renderProgPreview(){
       const named=exs.map((ex,ei)=>({ex,ei})).filter(o=>o.ex&&o.ex.name);
       if(!named.length) return '';
       const currentDate=getDateKey();
-      const exLastPerfs=named.map(({ex})=>getRefPerf(ex.name,currentDate));
+      // Référence par EMPLACEMENT (bi_ei) → bon biset / bonne occurrence, même série
+      const exLastPerfs=named.map(({ei})=>_refBySlot[bi+'_'+ei]||null);
       // Nb de séries PAR EXERCICE (suit le programme, sans masquer des séries déjà saisies)
       // Nb de séries par exercice = celui du PROGRAMME (source de vérité de la structure)
       const exCounts=named.map(({ex})=>ex.sets||1);
