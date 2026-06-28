@@ -1051,7 +1051,7 @@ main { padding:20px 24px; max-width:1100px; margin:0 auto; }
 
 <script>
 // ===================== CONSTANTS =====================
-const APP_VERSION='2026-06-19.4'; // change à chaque déploiement pour vérifier la version chargée
+const APP_VERSION='2026-06-19.5'; // change à chaque déploiement pour vérifier la version chargée
 let CAL_GOAL=2500, STEPS_GOAL=15000;
 const DB_KEY='fitness_v4', PROG_KEY='fitness_programme_v2', BMR_KEY='fitness_bmr';
 const PROGRAMS_KEY='fitness_programs_v1', PROFILE_KEY='fitness_profile_v1';
@@ -2203,19 +2203,24 @@ function _exSets(ex){
   if(ex.sets) return Array.from({length:ex.sets},()=>({reps:ex.reps||0,weight:ex.weight||0,myoreps:''}));
   return null;
 }
-// Référence = dernière séance réelle contenant l'exercice (1ʳᵉ occurrence — compat)
+// Référence (1ʳᵉ occurrence — compat) sur le MÊME JOUR de la semaine
 function getRefPerf(exName, beforeDate){ return getRefPerfOcc(exName,0,beforeDate); }
 
-// Référence pour la N-ᵉ occurrence d'un exercice dans la journée (gère les doublons :
-// le 2ᵉ "Écarté" du jour se compare au 2ᵉ "Écarté" de la dernière séance, même série).
+// Référence pour la N-ᵉ occurrence d'un exercice, UNIQUEMENT sur le même jour de la semaine
+// (lundi↔lundi, vendredi↔vendredi). Gère les doublons : le 2ᵉ "Écarté" du jour se compare
+// au 2ᵉ "Écarté" du même jour la semaine d'avant, même n° de série.
 function getRefPerfOcc(exName, occ, beforeDate){
   const data=getData();
   const dref=new Date(beforeDate+'T12:00:00');
-  const dates=Object.keys(data).filter(k=>k<beforeDate).sort().reverse();
+  const dow=dref.getDay(); // 0=dim … 5=ven …
+  // On ne regarde QUE les séances tombant le même jour de la semaine, en remontant le temps
+  const dates=Object.keys(data)
+    .filter(k=>k<beforeDate && new Date(k+'T12:00:00').getDay()===dow)
+    .sort().reverse();
   for(const k of dates){
     const matches=(data[k].exercises||[]).filter(e=>e.name===exName);
     if(!matches.length) continue;
-    // occurrence correspondante ; si la séance passée en avait moins, on prend la dernière dispo
+    // occurrence correspondante ; si ce jour-là il y en avait moins, on prend la dernière dispo
     const ex=matches[occ]||matches[matches.length-1];
     const sets=_exSets(ex);
     if(!sets||!sets.length) continue;
@@ -2493,7 +2498,9 @@ function _rebuildSetRows(bi,key,n){
   const existing=container.querySelectorAll('.set-row');
   const currentDate=getDateKey();
   const ex=_editPrefill?_editPrefill.find(b=>b._bi==bi&&b._key==key):null;
-  const lastPerf=ex?getLastPerf(ex.name,currentDate):null;
+  // Même référence que l'affichage (même jour de la semaine, par emplacement)
+  const slot=bi+'_'+key;
+  const lastPerf=(slot in _refBySlot)?_refBySlot[slot]:(ex?getRefPerf(ex.name,currentDate):null);
   // Preserve existing values
   const existingVals=[];
   existing.forEach(row=>{
